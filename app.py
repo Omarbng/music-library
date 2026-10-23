@@ -283,6 +283,8 @@ async def api_rescan():
         return {"status": "already scanning"}
     if tg is not None:
         return await tg_refresh(full=True)
+    if S.get("HF_DATASET"):
+        await run_in_threadpool(fetch_hf_dataset)   # pull new music from the private dataset first
     return await run_in_threadpool(refresh_library)
 
 
