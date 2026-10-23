@@ -201,9 +201,29 @@ app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
 
 
 # ---------- library API ----------
+VARIOUS = {"various artists", "various", "va"}
+
+
+def _album_artist(a) -> str:
+    """Show the real artist when a compilation track sits alone (e.g. one Butch track from a VA release)."""
+    if a.artist.lower() in VARIOUS:
+        artists = {library.tracks[t].artist for t in a.track_ids}
+        if len(artists) == 1:
+            return artists.pop()
+    return a.artist
+
+
+def _display_title(t) -> str:
+    """Tell apart versions with the same title in one record (e.g. the MP3 and Opus of a track)."""
+    album = library.albums.get(t.album_id)
+    if album and sum(1 for x in album.track_ids if library.tracks[x].title == t.title) > 1:
+        return f"{t.title} · {t.codec}"
+    return t.title
+
+
 def _album_json(a, with_tracks=False):
     data = {
-        "id": a.id, "title": a.title, "artist": a.artist, "year": a.year, "edition": a.edition,
+        "id": a.id, "title": a.title, "artist": _album_artist(a), "year": a.year, "edition": a.edition,
         "genre": a.genre, "tracks": len(a.track_ids), "duration": round(a.duration), "size": a.size,
         "added": a.added, "lossless": a.lossless, "quality": a.quality,
     }
@@ -214,7 +234,7 @@ def _album_json(a, with_tracks=False):
 
 def _track_json(t):
     return {
-        "id": t.id, "title": t.title, "artist": t.artist, "album": t.album, "albumId": t.album_id,
+        "id": t.id, "title": _display_title(t), "artist": t.artist, "album": t.album, "albumId": t.album_id,
         "trackNo": t.track_no, "discNo": t.disc_no, "duration": round(t.duration, 2),
         "quality": t.quality, "lossless": t.lossless, "size": t.size,
         "format": Path(t.path).suffix.lower().lstrip("."),
@@ -226,7 +246,7 @@ def api_library():
     return {
         "albums": [_album_json(a) for a in library.albums.values()],
         "tracks": [_track_json(t) for t in library.tracks.values()],
-        "siteName": S.get("SITE_NAME", "") or "music",
+        "siteName": S.get("SITE_NAME", "") or "void crate",
         "siteArtist": S.get("SITE_ARTIST", ""),
         "scannedAt": library.scanned_at,
         "scanning": library.scanning,

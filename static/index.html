@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Music · the void</title>
+<title>void crate</title>
 <link rel="icon" href="/favicon.svg">
 <meta name="theme-color" content="#000000">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Manrope:wght@300;400;500;600;700&family=Tilt+Warp&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?v=disc3">
+<link rel="stylesheet" href="/static/style.css?v=crate2">
 </head>
 <body>
 <canvas id="stars" aria-hidden="true"></canvas>
@@ -19,16 +19,16 @@
   <nav class="nav" aria-label="Main">
     <a class="brand" href="#/" aria-label="Home">
       <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-      <span class="brand-word" id="brand-word">music</span>
+      <span class="brand-word" id="brand-word">void crate</span>
     </a>
     <div class="nav-links">
-      <a href="#/" data-nav="home">Void</a>
-      <a href="#/albums" data-nav="albums">Albums</a>
-      <a href="#/songs" data-nav="songs">Songs</a>
+      <a href="#/" data-nav="home">Crate</a>
+      <a href="#/albums" data-nav="albums">Records</a>
+      <a href="#/songs" data-nav="songs">Tracks</a>
     </div>
     <label class="nav-search">
       <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>
-      <input id="q" type="search" placeholder="Search the void" autocomplete="off" aria-label="Search artists, albums and songs">
+      <input id="q" type="search" placeholder="Search the crate" autocomplete="off" aria-label="Search artists, records and tracks">
       <kbd>/</kbd>
     </label>
     <div class="nav-tools">
@@ -46,9 +46,9 @@
 </header>
 
 <div class="menu" id="menu" hidden>
-  <a href="#/">Void</a>
-  <a href="#/albums">Albums</a>
-  <a href="#/songs">Songs</a>
+  <a href="#/">Crate</a>
+  <a href="#/albums">Records</a>
+  <a href="#/songs">Tracks</a>
   <button type="button" data-action="rescan">Refresh library</button>
   <form method="post" action="/logout"><button type="submit">Sign out</button></form>
 </div>
@@ -84,6 +84,6 @@
 
 <audio id="audio" preload="metadata"></audio>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
-<script src="/static/app.js?v=disc3"></script>
+<script src="/static/app.js?v=crate2"></script>
 </body>
 </html>

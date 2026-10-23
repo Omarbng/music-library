@@ -1,5 +1,5 @@
 "use strict";
-/* Music · the void — private library front end.
+/* void crate — a private crate of selected raw music.
    Views: #/ (void), #/albums, #/songs, #/album/<id>, search via the nav field. */
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -50,7 +50,7 @@ async function loadLibrary() {
   const d = await api("/api/library");
   state.albums = d.albums; state.tracks = d.tracks; state.root = d.root;
   state.byAlbum = new Map(d.albums.map((a) => [a.id, a]));
-  state.siteName = d.siteName || "music"; state.siteArtist = d.siteArtist || "";
+  state.siteName = d.siteName || "void crate"; state.cv = Math.floor(d.scannedAt || 0);  // new cover links after every library refresh state.siteArtist = d.siteArtist || "";
   $("#brand-word").textContent = state.siteName;
 }
 
@@ -62,7 +62,7 @@ function phStyle(id) {
 function cover(album, size = 300) {
   const id = album.id || album.albumId;
   const title = album.title || album.album || "";
-  return `<div class="cover" style="${phStyle(id)}"><span class="ph">${esc(title)}</span><img loading="lazy" decoding="async" alt="" src="/cover/${id}?size=${size}" onload="this.classList.add('ready')" onerror="this.remove()"></div>`;
+  return `<div class="cover" style="${phStyle(id)}"><span class="ph">${esc(title)}</span><img loading="lazy" decoding="async" alt="" src="/cover/${id}?size=${size}&v=${state.cv}" onload="this.classList.add('ready')" onerror="this.remove()"></div>`;
 }
 const qualityChip = (x) => {
   const label = x.quality === "Mixed" ? (x.lossless ? "Lossless" : "Mixed") : x.quality.split(" · ").slice(0, 2).join(" ");
@@ -79,7 +79,7 @@ function rimText(a, tracks = []) {
 }
 function disc(a, { text = "", cls = "", idle = 9 } = {}) {
   const id = a.id || a.albumId, uid = `dp${++discUid}`;
-  return `<div class="disc ${cls}" data-disc data-album="${esc(id)}" data-idle="${idle}" style="${phStyle(id)}; --disc-img: url('/cover/${esc(id)}?size=800')" aria-hidden="true">
+  return `<div class="disc ${cls}" data-disc data-album="${esc(id)}" data-idle="${idle}" style="${phStyle(id)}; --disc-img: url('/cover/${esc(id)}?size=800&v=${state.cv}')" aria-hidden="true">
     <div class="disc-spin"><div class="disc-face"></div>${text ? `<svg class="disc-text" viewBox="0 0 100 100"><defs><path id="${uid}" d="M50,50 m-41,0 a41,41 0 1,1 82,0 a41,41 0 1,1 -82,0"/></defs><text><textPath href="#${uid}">${esc(text)}</textPath></text></svg>` : ""}</div>
     <div class="disc-sheen"></div><div class="disc-rim"></div><div class="disc-hub"></div></div>`;
 }
@@ -230,7 +230,7 @@ const sortedAlbums = () => state.albums.slice().sort(SORTS[state.sort] || SORTS.
 const recentAlbums = (n) => state.albums.slice().sort(SORTS.added).slice(0, n);
 
 /* ---------- view: the void (home) ---------- */
-const WORDS = ["albums", "tracks", "DJ sets", "B-sides", "remixes", "sessions"];
+const WORDS = ["cuts", "edits", "dubs", "records", "sessions", "B-sides"];
 function renderHome() {
   const totalSize = state.albums.reduce((n, a) => n + a.size, 0);
   const lossless = state.tracks.filter((t) => t.lossless).length;
@@ -239,28 +239,28 @@ function renderHome() {
     <section class="hero" id="hero">
       <div id="hero-void"></div>
       <div class="hero-copy">
-        <span class="eyebrow reveal"><b></b>${esc(state.siteArtist ? `${state.siteArtist} · private library` : "Your private library")}</span>
-        <h1 class="reveal" style="--d:.08s"><span class="l1">Your favourite <span class="swap" id="swap">${WORDS[0]}</span></span><br>deserve a universe.</h1>
-        <p class="hero-sub reveal" style="--d:.16s"><strong>${plural(state.tracks.length, "song")}</strong> across <strong>${plural(state.albums.length, "album")}</strong>, ${fmtSize(totalSize)} drifting in one void${lossless ? `, ${lossless} in lossless` : ""}.</p>
+        <span class="eyebrow reveal"><b></b>${esc(state.siteArtist ? `${state.siteArtist} · private crate` : "Private crate · invite only")}</span>
+        <h1 class="reveal" style="--d:.08s"><span class="l1">Selected <span class="swap" id="swap">${WORDS[0]}</span>,</span><br>kept in the void.</h1>
+        <p class="hero-sub reveal" style="--d:.16s">Raw, minimal, hand-picked. <strong>${plural(state.tracks.length, "track")}</strong> on <strong>${plural(state.albums.length, "record")}</strong>${lossless ? `, ${lossless} in lossless` : ""}. Nothing else.</p>
         <div class="btn-row reveal" style="--d:.24s">
-          <button class="btn primary" id="play-all">Play the void <span class="ico">${ICON.shuffle}</span></button>
-          <a class="btn" href="#/albums">Browse albums <span class="ico">${ICON.arrow}</span></a>
+          <button class="btn primary" id="play-all">Play the crate <span class="ico">${ICON.shuffle}</span></button>
+          <a class="btn" href="#/albums">Browse records <span class="ico">${ICON.arrow}</span></a>
         </div>
       </div>
       <span class="scroll-cue" aria-hidden="true"></span>
     </section>
 
     ${recents.length ? `<section class="section" id="listen">
-      <div class="section-head reveal"><span class="eyebrow"><b></b>Recently added</span><h2>Listen, right here.</h2><p>Tap the album in the middle to play it. Swipe, drag or use the arrows to drift through the rest.</p></div>
+      <div class="section-head reveal"><span class="eyebrow"><b></b>Recently added</span><h2>Fresh in the crate.</h2><p>The latest additions. Tap the record in the middle to play it; swipe or use the arrows for the rest.</p></div>
       <div class="flow reveal" id="flow" aria-roledescription="carousel"></div>
-      <div class="flow-nav reveal"><button class="round" id="flow-prev" aria-label="Previous album">${ICON.left}</button><button class="round" id="flow-next" aria-label="Next album">${ICON.right}</button></div>
+      <div class="flow-nav reveal"><button class="round" id="flow-prev" aria-label="Previous record">${ICON.left}</button><button class="round" id="flow-next" aria-label="Next record">${ICON.right}</button></div>
     </section>` : ""}
 
     <section class="section" id="everything">
-      <div class="section-head reveal"><span class="eyebrow"><b></b>${plural(state.albums.length, "album")}</span><h2>Everything in the void.</h2><p>Your whole library, floating in staggered orbit. Switch to 3D and scroll to fly through it.</p></div>
+      <div class="section-head reveal"><span class="eyebrow"><b></b>${plural(state.albums.length, "record")}</span><h2>The whole crate.</h2><p>Every record, in staggered orbit. Switch to 3D and scroll to fly through it.</p></div>
       <div id="wall-area"></div>
     </section>
-    <div class="foot">${esc(state.siteName)} · private, password-protected · ${plural(state.tracks.length, "song")}</div>`;
+    <div class="foot">${esc(state.siteName)} · private · ${plural(state.tracks.length, "track")}, selected by hand</div>`;
 
   if (!state.albums.length) {
     $("#view").innerHTML = emptyState();
@@ -381,7 +381,7 @@ function renderAlbums() {
   $("#view").innerHTML = `
     <div class="page">
       <div class="page-head reveal">
-        <div><span class="eyebrow"><b></b>${plural(state.albums.length, "album")}</span><h1>Albums.</h1><p>Every record in the void, in staggered orbit.</p></div>
+        <div><span class="eyebrow"><b></b>${plural(state.albums.length, "record")}</span><h1>Records.</h1><p>Everything in the crate, in staggered orbit.</p></div>
       </div>
       <div id="wall-area"></div>
     </div>`;
@@ -422,7 +422,7 @@ function renderSongs(limit = 200) {
   $("#view").innerHTML = `
     <div class="page">
       <div class="page-head reveal">
-        <div><span class="eyebrow"><b></b>${plural(list.length, "song")}</span><h1>Every song.</h1><p>The whole void as one long list.</p></div>
+        <div><span class="eyebrow"><b></b>${plural(list.length, "track")}</span><h1>Tracks.</h1><p>The whole crate as one long list.</p></div>
         ${list.length ? `<button class="btn" id="shuffle-all">Shuffle all <span class="ico">${ICON.shuffle}</span></button>` : ""}
       </div>
       ${list.length ? `<div class="list bezel reveal"><div class="core" id="list">${rows(shown, { withAlbum: true, numbered: false })}</div></div>
@@ -442,10 +442,10 @@ function renderSearch() {
   const tracks = state.tracks.filter((t) => matches([t.title, t.artist, t.album])).slice(0, 120);
   $("#view").innerHTML = `
     <div class="page">
-      <div class="page-head reveal"><div><span class="eyebrow"><b></b>Search</span><h1>“${esc(state.query)}”</h1><p>${plural(albums.length, "album")} and ${plural(tracks.length, "song")} found in the void.</p></div></div>
+      <div class="page-head reveal"><div><span class="eyebrow"><b></b>Search</span><h1>“${esc(state.query)}”</h1><p>${plural(albums.length, "record")} and ${plural(tracks.length, "track")} found in the crate.</p></div></div>
       ${albums.length ? `<div id="wall-area" style="margin-bottom:64px"></div>` : ""}
       ${tracks.length ? `<div class="list bezel reveal"><div class="core" id="list">${rows(tracks, { withAlbum: true, numbered: false })}</div></div>` : ""}
-      ${!albums.length && !tracks.length ? `<div class="empty"><h2>Nothing out here.</h2>No album or song matches “${esc(state.query)}”.</div>` : ""}
+      ${!albums.length && !tracks.length ? `<div class="empty"><h2>Nothing out here.</h2>No record or track matches “${esc(state.query)}”.</div>` : ""}
     </div>`;
   if (albums.length) renderWall($("#wall-area"), albums);
   if (tracks.length) bindRows($("#list"), tracks);
@@ -456,18 +456,18 @@ function renderSearch() {
 async function renderAlbum(id) {
   let a;
   try { a = await api(`/api/albums/${id}`); }
-  catch { $("#view").innerHTML = `<div class="page"><div class="empty"><h2>Lost in the void.</h2>This album isn't here anymore.<div class="btn-row" style="justify-content:center;margin-top:24px"><a class="btn" href="#/">Back to the void <span class="ico">${ICON.arrow}</span></a></div></div></div>`; return; }
+  catch { $("#view").innerHTML = `<div class="page"><div class="empty"><h2>Lost in the void.</h2>This record isn't in the crate anymore.<div class="btn-row" style="justify-content:center;margin-top:24px"><a class="btn" href="#/">Back to the crate <span class="ico">${ICON.arrow}</span></a></div></div></div>`; return; }
   const list = a.trackList;
   const order = sortedAlbums(), at = order.findIndex((x) => x.id === a.id);
   const nextAlbum = order.length > 1 ? order[(at + 1) % order.length] : null;
-  const meta = [["Artist", a.artist], ["Year", a.year], ["Songs", String(list.length)], ["Length", fmtLong(a.duration)],
+  const meta = [["Artist", a.artist], ["Year", a.year], ["Tracks", String(list.length)], ["Length", fmtLong(a.duration)],
     ["Format", a.quality === "Mixed" ? (a.lossless ? "Lossless" : "Mixed") : a.quality], ["Size", fmtSize(a.size)], a.edition && ["Edition", a.edition]].filter((m) => m && m[1]);
   $("#view").innerHTML = `
     <article class="ed">
       <span class="cross tl"></span><span class="cross tr"></span>
-      <a class="back" href="#/albums">${ICON.back} Albums</a>
+      <a class="back" href="#/albums">${ICON.back} Records</a>
       <header class="ed-head reveal">
-        <div class="ed-kicker">${list.length === 1 ? "Single" : "Album"}${a.year ? ` · ${esc(a.year)}` : ""}</div>
+        <div class="ed-kicker">${list.length === 1 ? "Single" : "Record"}${a.year ? ` · ${esc(a.year)}` : ""}</div>
         <h1 class="ed-title">${esc(a.title)}</h1>
         <div class="ed-credits"><span><small>By</small>${esc(a.artist)}</span>${a.edition ? `<span><small>Edition</small>${esc(a.edition)}</span>` : ""}<span><small>Runtime</small>${fmtTime(a.duration)}</span></div>
       </header>
@@ -485,7 +485,7 @@ async function renderAlbum(id) {
       <dl class="ed-meta reveal">${meta.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join("")}</dl>
       <div class="list bezel reveal"><div class="core" id="list">${rows(list)}</div></div>
       ${nextAlbum ? `<a class="next reveal" href="#/album/${nextAlbum.id}" aria-label="Next album: ${esc(nextAlbum.title)}">
-        <span class="ed-kicker">Next in the void</span>
+        <span class="ed-kicker">Next in the crate</span>
         ${nextWords(nextAlbum.title)}
         ${disc(nextAlbum, { text: rimText(nextAlbum), idle: 11 })}
         <span class="next-cta">${esc(nextAlbum.artist)} →</span>
@@ -519,11 +519,11 @@ function tintFrom(albumId) {
       if (n) document.documentElement.style.setProperty("--tint", `${Math.round(r / n)}, ${Math.round(g / n)}, ${Math.round(b / n)}`);
     } catch {}
   };
-  img.src = `/cover/${albumId}?size=300`;
+  img.src = `/cover/${albumId}?size=300&v=${state.cv}`;
 }
 
 function emptyState() {
-  return `<div class="page"><div class="empty"><span class="eyebrow"><b></b>Empty void</span><h2>Nothing is floating here yet.</h2>Add music to ${esc(state.root || "your library")}, then press the refresh button at the top.</div></div>`;
+  return `<div class="page"><div class="empty"><span class="eyebrow"><b></b>Empty crate</span><h2>Nothing in the crate yet.</h2>Add music to ${esc(state.root || "your library")}, then press the refresh button at the top.</div></div>`;
 }
 function shuffle(arr) { const a = arr.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
 
@@ -568,10 +568,10 @@ function loadCurrent(autoplay) {
   const q = $("#np-quality"); q.textContent = t.quality.split(" · ").slice(0, 2).join(" "); q.className = `chip ${t.lossless ? "ll" : ""}`;
   $("#np-download").href = `/download/track/${t.id}`;
   $("#t-dur").textContent = fmtTime(t.duration);
-  document.title = `${t.title} · ${t.artist}`;
+  document.title = `${t.title} · ${t.artist} — ${state.siteName}`;
   if ("mediaSession" in navigator) {
     navigator.mediaSession.metadata = new MediaMetadata({ title: t.title, artist: t.artist, album: t.album,
-      artwork: [{ src: `/cover/${t.albumId}?size=800`, sizes: "800x800", type: "image/jpeg" }] });
+      artwork: [{ src: `/cover/${t.albumId}?size=800&v=${state.cv}`, sizes: "800x800", type: "image/jpeg" }] });
   }
   markPlaying();
 }
@@ -641,7 +641,7 @@ async function rescan() {
   try {
     const r = await api("/api/rescan", { method: "POST" });
     await loadLibrary(); route();
-    toast(r.tracks != null ? `Library updated: ${plural(r.albums, "album")}, ${plural(r.tracks, "song")}` : "A refresh is already running");
+    toast(r.tracks != null ? `Crate updated: ${plural(r.albums, "record")}, ${plural(r.tracks, "track")}` : "A refresh is already running");
   } catch { toast("Refresh failed"); }
   btn.classList.remove("spin");
 }
@@ -650,5 +650,5 @@ $('[data-action="rescan"]').onclick = () => { closeMenu(); rescan(); };
 
 addEventListener("hashchange", route);
 loadLibrary().then(route).catch((e) => {
-  if (e.message !== "login") $("#view").innerHTML = `<div class="page"><div class="empty"><h2>Couldn't reach the void.</h2>Check that the server is running, then reload.</div></div>`;
+  if (e.message !== "login") $("#view").innerHTML = `<div class="page"><div class="empty"><h2>Couldn't reach the crate.</h2>Check that the server is running, then reload.</div></div>`;
 });
