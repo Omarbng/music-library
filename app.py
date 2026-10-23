@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import io
 import hmac
 import json
 import os
@@ -22,7 +23,7 @@ import uvicorn
 import zipstream
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Form, HTTPException, Request
+from fastapi import Body, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response,
                                StreamingResponse)
@@ -218,7 +219,10 @@ def _album_artist(a) -> str:
 def _display_title(t) -> str:
     """Tell apart versions with the same title in one record (e.g. the MP3 and Opus of a track)."""
     album = library.albums.get(t.album_id)
-    if album and sum(1 for x in album.track_ids if library.tracks[x].title == t.title) > 1:
+    same = [library.tracks[x] for x in album.track_ids if library.tracks[x].title == t.title] if album else []
+    if len(same) > 1:
+        if sum(1 for x in same if x.codec == t.codec) > 1:      # two AAC versions: tell them apart by bitrate
+            return f"{t.title} · {t.quality.replace(' · ', ' ')}"
         return f"{t.title} · {t.codec}"
     return t.title
 
@@ -236,7 +240,7 @@ def _album_json(a, with_tracks=False):
 
 def _track_json(t):
     return {
-        "id": t.id, "title": _display_title(t), "artist": t.artist, "album": t.album, "albumId": t.album_id,
+        "id": t.id, "title": _display_title(t), "rawTitle": t.title, "artist": t.artist, "album": t.album, "albumId": t.album_id,
         "trackNo": t.track_no, "discNo": t.disc_no, "duration": round(t.duration, 2),
         "quality": t.quality, "lossless": t.lossless, "size": t.size, "added": t.mtime,
         "format": Path(t.path).suffix.lower().lstrip("."),
@@ -263,6 +267,7 @@ def api_library():
         "siteName": S.get("SITE_NAME", "") or "void crate",
         "siteArtist": S.get("SITE_ARTIST", ""),
         "navLink": _nav_link(),
+        "canEdit": CAN_EDIT,
         "scannedAt": library.scanned_at,
         "scanning": library.scanning,
         "root": str(library.root),
@@ -286,6 +291,80 @@ async def api_rescan():
     if S.get("HF_DATASET"):
         await run_in_threadpool(fetch_hf_dataset)   # pull new music from the private dataset first
     return await run_in_threadpool(refresh_library)
+
+
+# ---------- fixing titles, artists and covers (on the computer that holds the music) ----------
+CAN_EDIT = r2 is None and tg is None and not S.get("HF_DATASET")  # the cloud copy is rebuilt from the dataset
+
+
+def _editable_album(album_id: str):
+    if not CAN_EDIT:
+        raise HTTPException(403, "Edit records on the computer that has the music, then sync.")
+    album = library.albums.get(album_id)
+    if album is None:
+        raise HTTPException(404, "album not found")
+    return album
+
+
+@app.post("/api/albums/{album_id}/edit")
+async def api_edit_album(album_id: str, body: dict = Body(...)):
+    """body: {title, artist, tracks: {trackId: {title, artist}}} -- blank or unchanged fields fall back to the file's own tags."""
+    album = _editable_album(album_id)
+    edits = library.load_edits()
+    clean = lambda v: re.sub(r"\s+", " ", str(v or "")).strip()[:200]
+    old_artist = album.artist
+    new_title, new_artist = clean(body.get("title")), clean(body.get("artist"))
+    for tid in album.track_ids:
+        t = library.tracks[tid]
+        rel = library.rel(t)
+        e = dict(edits["tracks"].get(rel, {}))
+        if new_title:
+            e["album"] = new_title
+        if new_artist:
+            e["album_artist"] = new_artist
+            if t.artist == old_artist:            # a single's artist is the record's artist
+                e["artist"] = new_artist
+        te = (body.get("tracks") or {}).get(tid) or {}
+        for key in ("title", "artist"):
+            if clean(te.get(key)):
+                e[key] = clean(te[key])
+        edits["tracks"][rel] = e
+    if body.get("reset"):
+        for tid in album.track_ids:
+            edits["tracks"].pop(library.rel(library.tracks[tid]), None)
+    library.save_edits(edits)
+    await run_in_threadpool(refresh_library)
+    first = library.tracks.get(album.track_ids[0])
+    return {"ok": True, "albumId": first.album_id if first else None}
+
+
+@app.post("/api/albums/{album_id}/cover")
+async def api_album_cover(album_id: str, file: UploadFile = File(...)):
+    """Use your own image as the record's cover: saved next to the music as cover.jpg (or <track>.jpg for a single)."""
+    from PIL import Image
+    album = _editable_album(album_id)
+    data = await file.read()
+    if len(data) > 25_000_000:
+        raise HTTPException(413, "That image is over 25 MB.")
+    try:
+        img = Image.open(io.BytesIO(data)).convert("RGB")
+    except Exception:
+        raise HTTPException(400, "That file isn't an image.")
+    img.thumbnail((1600, 1600), Image.LANCZOS)
+    folder = Path(album.folder)
+    first = Path(library.tracks[album.track_ids[0]].path)
+    if folder == library.root or first.parent != folder:
+        target = first.with_suffix(".jpg")      # loose single, or a copy merged into an EP: a sidecar image
+    else:
+        target = folder / "cover.jpg"
+        for p in folder.iterdir():                # keep only one cover image in the folder
+            if p.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp") and p != target and p.stem.lower() in ("cover", "folder", "front"):
+                p.rename(p.with_name(f".{p.name}.replaced"))
+    img.save(target, "JPEG", quality=92)
+    for p in (library.cache_dir / "covers").glob(f"{album.id}*"):
+        p.unlink(missing_ok=True)
+    library.scanned_at = time.time()             # new cover links in the browser
+    return {"ok": True}
 
 
 # ---------- media ----------

@@ -52,10 +52,12 @@ def music_files(env: dict) -> tuple[Path, dict[str, Path]]:
     for t in lib.tracks.values():
         p = Path(t.path)
         files[p.relative_to(lib.root).as_posix()] = p
-        if p.parent != lib.root:
-            for img in p.parent.iterdir():
-                if img.suffix.lower() in IMAGE_EXTS and not img.name.startswith("."):
-                    files[img.relative_to(lib.root).as_posix()] = img
+        images = p.parent.iterdir() if p.parent != lib.root else (p.with_suffix(e) for e in IMAGE_EXTS)  # folder art, or a single's own cover
+        for img in images:
+            if img.suffix.lower() in IMAGE_EXTS and not img.name.startswith(".") and img.is_file():
+                files[img.relative_to(lib.root).as_posix()] = img
+    if lib.edits_file.is_file():                       # titles/artists fixed on the site
+        files[lib.edits_file.relative_to(lib.root).as_posix()] = lib.edits_file
     return lib.root, files
 
 

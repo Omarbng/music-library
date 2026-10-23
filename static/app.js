@@ -51,7 +51,7 @@ async function loadLibrary() {
   state.albums = d.albums; state.tracks = d.tracks; state.root = d.root;
   state.byAlbum = new Map(d.albums.map((a) => [a.id, a]));
   state.byTrack = new Map(d.tracks.map((t) => [t.id, t]));
-  state.siteName = d.siteName || "void crate"; state.siteArtist = d.siteArtist || "";
+  state.siteName = d.siteName || "void crate"; state.siteArtist = d.siteArtist || ""; state.canEdit = !!d.canEdit;
   state.cv = Math.floor(d.scannedAt || 0);  // new cover links after every library refresh
   $("#brand-word").textContent = state.siteName;
   // the top-bar link for finding new music (Lucida unless NAV_LINK says otherwise)
@@ -485,7 +485,9 @@ async function renderAlbum(id) {
         <button class="ulink" id="shuffle">Shuffle</button>
         <button class="ulink" id="enqueue">Add to queue</button>
         <a class="ulink" href="/download/album/${a.id}">Download <small>${fmtSize(a.size)}</small></a>
+        ${state.canEdit ? `<button class="ulink" id="edit" aria-expanded="false" aria-controls="editor">Edit</button>` : ""}
       </div>
+      ${state.canEdit ? editorBlock(a, list) : ""}
       <dl class="meta-table reveal">${meta.map(([k, v]) => `<div><dt class="lbl">${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join("")}</dl>
       <div class="sec-head"><span class="lbl">Tracklist</span><span class="lbl mute">${plural(list.length, "track")}</span></div>
       <div class="tracks" id="list">${rows(list)}</div>
@@ -496,9 +498,88 @@ async function renderAlbum(id) {
   $("#play").onclick = () => playList(list, 0, { shuffle: false });
   $("#shuffle").onclick = () => playList(list, Math.floor(Math.random() * list.length), { shuffle: true });
   $("#enqueue").onclick = () => addToQueue(list);
+  if (state.canEdit) bindEditor(a, list);
   bindRows($("#list"), list);
   spinDiscs($("#view"));
   reveals();
+}
+
+/* ---------- fixing a record: titles, artists, your own cover (only on the computer with the music) ---------- */
+function editorBlock(a, list) {
+  const field = (id, label, value) => `<label class="e-field"><span class="lbl">${label}</span><input id="${id}" value="${esc(value)}" autocomplete="off" spellcheck="false"></label>`;
+  return `
+    <section class="editor" id="editor" hidden>
+      <div class="e-grid">
+        <div>
+          <label class="drop" id="drop" title="Drop an image here, or click to choose one">
+            <div class="drop-art">${cover(a, 300)}</div>
+            <span class="drop-hint"><b>Use your own cover</b><span class="lbl mute">Drop an image or click · JPG, PNG, WebP</span></span>
+            <input type="file" id="cover-file" accept="image/*" hidden>
+          </label>
+        </div>
+        <div class="e-fields">
+          ${field("e-title", "Record title", a.title)}
+          ${field("e-artist", "Artist", a.artist)}
+          <div class="e-head lbl mute"><span>#</span><span>Track title</span><span>Track artist</span></div>
+          ${list.map((t, i) => `<div class="e-track" data-tid="${t.id}"><span class="num">${pad2(t.trackNo || i + 1)}</span>
+            <input data-k="title" value="${esc(t.rawTitle || t.title)}" aria-label="Title of track ${i + 1}" spellcheck="false">
+            <input data-k="artist" value="${esc(t.artist)}" aria-label="Artist of track ${i + 1}" spellcheck="false"></div>`).join("")}
+          <div class="e-actions">
+            <button class="ulink" id="e-save">Save</button>
+            <button class="txt" id="e-cancel">Cancel</button>
+            <button class="txt" id="e-reset" title="Go back to the names in the files">Undo my edits</button>
+          </div>
+          <p class="e-note lbl mute">Saved on this computer next to your music. Run the music sync to put the changes on the online site.</p>
+        </div>
+      </div>
+    </section>`;
+}
+function bindEditor(a, list) {
+  const ed = $("#editor"), btn = $("#edit");
+  const open = (on) => { ed.hidden = !on; btn.setAttribute("aria-expanded", String(on)); btn.textContent = on ? "Close" : "Edit"; if (on) { setTimeout(() => ed.classList.add("open"), 20); $("#e-title").focus(); } else ed.classList.remove("open"); };
+  btn.onclick = () => open(ed.hidden);
+  $("#e-cancel").onclick = () => open(false);
+  const after = async (res, msg) => {
+    await loadLibrary();
+    toast(msg);
+    if (res.albumId && res.albumId !== a.id) location.hash = `#/album/${res.albumId}`; else route();
+  };
+  const post = async (url, body) => {
+    const r = await fetch(url, body instanceof FormData ? { method: "POST", body } : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.detail || "Couldn't save");
+    return d;
+  };
+  $("#e-save").onclick = async () => {
+    const body = { tracks: {} };
+    const title = $("#e-title").value.trim(), artist = $("#e-artist").value.trim();
+    if (title && title !== a.title) body.title = title;
+    if (artist && artist !== a.artist) body.artist = artist;
+    $$(".e-track", ed).forEach((row) => {
+      const t = list.find((x) => x.id === row.dataset.tid), ch = {};
+      $$("input", row).forEach((inp) => { const v = inp.value.trim(), was = inp.dataset.k === "title" ? (t.rawTitle || t.title) : t.artist; if (v && v !== was) ch[inp.dataset.k] = v; });
+      if (Object.keys(ch).length) body.tracks[t.id] = ch;
+    });
+    if (!body.title && !body.artist && !Object.keys(body.tracks).length) return open(false);
+    try { $("#e-save").textContent = "Saving…"; await after(await post(`/api/albums/${a.id}/edit`, body), "Saved"); }
+    catch (e) { toast(e.message); $("#e-save").textContent = "Save"; }
+  };
+  $("#e-reset").onclick = async () => {
+    try { await after(await post(`/api/albums/${a.id}/edit`, { reset: true }), "Back to the names in the files"); } catch (e) { toast(e.message); }
+  };
+  const upload = async (file) => {
+    if (!file || !file.type.startsWith("image/")) return toast("Choose an image file");
+    const fd = new FormData(); fd.append("file", file);
+    $("#drop").classList.add("busy");
+    try { await after(await post(`/api/albums/${a.id}/cover`, fd), "Cover updated"); }
+    catch (e) { toast(e.message); $("#drop").classList.remove("busy"); }
+  };
+  $("#cover-file").onchange = (e) => upload(e.target.files[0]);
+  const drop = $("#drop");
+  ["dragenter", "dragover"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+  ["dragleave", "drop"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
+  drop.addEventListener("drop", (e) => upload(e.dataTransfer.files[0]));
+  $$("input", ed).forEach((inp) => inp.addEventListener("keydown", (e) => { if (e.key === "Enter") $("#e-save").click(); if (e.key === "Escape") open(false); }));
 }
 
 /* ---------- routing ---------- */

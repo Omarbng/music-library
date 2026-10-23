@@ -22,7 +22,8 @@ from PIL import Image
 
 AUDIO_EXTS = {".mp3", ".flac", ".m4a", ".mp4", ".aac", ".wav", ".aif", ".aiff", ".ogg", ".opus"}  # .mp4 = audio-only mixes
 COVER_NAMES = ("cover", "folder", "front", "album", "artwork")
-CACHE_VERSION = 8
+CACHE_VERSION = 9
+EDITS_FILE = ".voidcrate/edits.json"  # titles/artists you fixed on the site
 
 
 def _id(text: str) -> str:
@@ -134,6 +135,46 @@ def untangle(title: str, artist: str) -> tuple[str, str]:
     return t, artist
 
 
+_WORDS = r"original|extended|mix|remix|edit|dub|version|radio|club|vocal|instrumental|rework|remaster(?:ed)?|bootleg|vip"
+_TAIL_REMIX = re.compile(rf"^(.*\S)\s+-\s+([^()\[\]-]{{2,60}}\b(?:{_WORDS}))\s*$", re.I)
+
+
+def tidy_title(t: str) -> str:
+    """Small consistency fixes: 'Song - Name Remix' -> 'Song (Name Remix)', '(original Mix)' -> '(Original Mix)',
+    ')Remaster' -> ') Remaster'."""
+    s = t or ""
+    s = re.sub(r"([)\]])(?=[A-Za-z0-9])", r"\1 ", s)
+    m = _TAIL_REMIX.match(s)
+    if m and "(" not in m.group(2):
+        s = f"{m.group(1)} ({m.group(2)})"
+    s = re.sub(rf"(?<=[(\[\s])({_WORDS})\b(?=[^()\[\]]*[)\]])",
+               lambda w: w.group(1)[0].upper() + w.group(1)[1:], s, flags=re.I)
+    return re.sub(r"\s{2,}", " ", s).strip()
+
+
+def tidy_artist(artist: str, title: str) -> str:
+    """'Loukas./Etzu Mahkayah' on 'Train to Vipassana (Etzu Mahkayah Remix)' -> 'Loukas.': drop credited remixers."""
+    parts = [p.strip() for p in re.split(r"\s*/\s*", artist or "") if p.strip()]
+    if len(parts) < 2:
+        return artist
+    keep = [p for p in parts if _norm_key(p) not in _norm_key(title)] or parts[:1]
+    return artist if len(keep) == len(parts) else " & ".join(keep)   # leave names like "AC/DC" alone
+
+
+def _norm_key(s: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", (s or "").lower())
+
+
+def tidy_folder_album(name: str, *artists: str) -> str:
+    """'Rayzeh - Eseym - Oxide EP [AIR028] (1970)' -> 'Oxide EP [AIR028]': drop uploader/artist prefixes and years."""
+    s = re.sub(r"\s*\((?:19|20)\d\d\)\s*$", "", name or "").strip()
+    parts = s.split(" - ")
+    known = {_norm_key(a) for a in artists if a}
+    while len(parts) > 1 and _norm_key(parts[0]) in known:
+        parts.pop(0)
+    return " - ".join(parts).strip() or name
+
+
 def name_source(stem: str) -> str:
     s = stem.replace("_", " ")
     return "dash" if " - " in s else ("by" if re.search(r"\sby\s", s) else "")
@@ -195,15 +236,26 @@ def read_track(path: Path, root: Path) -> Track:
     artist = _first(tags, "artist", "") or file_artist or "Unknown Artist"
     named_from = "tags" if _first(tags, "artist", "") else (name_source(path.stem) if file_artist else "")
     raw_title = title
+    tag_artist = artist
     title, real_artist = untangle(title, artist)
     if real_artist != artist:            # tagged with the uploader; the real artist was in the title
         artist = real_artist
         album_artist = real_artist
     else:
         album_artist = _first(tags, "albumartist", artist)
-    album = _first(tags, "album", title if in_root else folder.name)
+    album = _first(tags, "album", "") or (title if in_root else tidy_folder_album(folder.name, tag_artist, artist, album_artist))
     if clean_name(album) == raw_title or untangle(album, artist)[0] == title:
         album = title                    # album tag was just the "Artist - Title" string
+    was_title = album == title
+    title = tidy_title(title)
+    album = title if was_title else tidy_title(album)
+    artist = tidy_artist(artist, title)
+    if album_artist != artist and "/" in album_artist:
+        album_artist = tidy_artist(album_artist, title)
+    track_no = _num(_first(tags, "tracknumber", "0"))
+    if not track_no and not in_root:     # "1. Song.m4a" in an album folder
+        m = re.match(r"^\s*(\d{1,3})\s*[-.]\s", path.stem)
+        track_no = int(m.group(1)) if m else 0
 
     return Track(
         id=_id(str(path)),
@@ -212,7 +264,7 @@ def read_track(path: Path, root: Path) -> Track:
         artist=artist,
         album_artist=album_artist,
         album=album,
-        track_no=_num(_first(tags, "tracknumber", "0")),
+        track_no=track_no,
         disc_no=_num(_first(tags, "discnumber", "0")),
         year=_year(_first(tags, "date", "")),
         genre=_first(tags, "genre", ""),
@@ -289,16 +341,17 @@ class Library:
                 except Exception:
                     continue
 
-            tracks = self._drop_copies(tracks)
-            self.albums = self._group(tracks)
-            self.tracks = tracks
-            self.skipped = skipped
-            self.scanned_at = time.time()
-            cache_file.write_text(json.dumps({
+            cache_file.write_text(json.dumps({  # as read from the files, before edits and grouping
                 "version": CACHE_VERSION,
                 "root": str(self.root),
                 "tracks": [asdict(t) for t in tracks.values()],
             }))
+            tracks = self._drop_copies(tracks)
+            self._apply_edits(tracks)
+            self.albums = self._group(tracks)
+            self.tracks = tracks
+            self.skipped = skipped
+            self.scanned_at = time.time()
             self.scanning = False
             return {"tracks": len(tracks), "albums": len(self.albums), "read": read, "skipped": len(skipped),
                     "cached": reused, "seconds": round(time.time() - started, 2)}
@@ -326,6 +379,36 @@ class Library:
             out[tid] = t
         return out
 
+    # ---------- your own fixes, made on the record page ----------
+    @property
+    def edits_file(self) -> Path:
+        return self.root / EDITS_FILE
+
+    def load_edits(self) -> dict:
+        try:
+            data = json.loads(self.edits_file.read_text())
+            return data if isinstance(data.get("tracks"), dict) else {"tracks": {}}
+        except (OSError, ValueError):
+            return {"tracks": {}}
+
+    def save_edits(self, data: dict) -> None:
+        data["tracks"] = {k: v for k, v in data["tracks"].items() if v}
+        self.edits_file.parent.mkdir(exist_ok=True)
+        self.edits_file.write_text(json.dumps(data, indent=1, ensure_ascii=False))
+
+    def rel(self, track: Track) -> str:
+        return Path(track.path).relative_to(self.root).as_posix()
+
+    def _apply_edits(self, tracks: dict[str, Track]) -> None:
+        edits = self.load_edits()["tracks"]
+        if not edits:
+            return
+        for t in tracks.values():
+            e = edits.get(self.rel(t))
+            for field_name in ("title", "artist", "album", "album_artist"):
+                if e and e.get(field_name):
+                    setattr(t, field_name, e[field_name])
+
     def _group(self, tracks: dict[str, Track]) -> dict[str, Album]:
         # Loose files whose album tag is shared by different artists (a playlist name, e.g.
         # "Rominimal") are really separate singles.
@@ -336,9 +419,26 @@ class Library:
         for t in tracks.values():
             if Path(t.path).parent == self.root and len(artists_per_album.get(t.album.lower(), ())) > 1:
                 t.album = t.title
+        # A loose copy of a track from an EP folder ("Oxide [AIR028]" next to the "Oxide EP [AIR028]" folder)
+        # joins that record as another version instead of being a record of its own.
+        def catalog(text):
+            m = re.search(r"\[([A-Za-z]{2,}[- ]?\d{2,})\]", text or "")
+            return m.group(1).upper() if m else ""
+        base = lambda text: _norm_key(re.sub(r"\s*\[[^\]]*\]\s*$", "", text or ""))
+        eps: dict[tuple, tuple] = {}
+        for t in tracks.values():
+            if Path(t.path).parent != self.root and catalog(t.album):
+                eps.setdefault((_norm_key(t.album_artist), catalog(t.album)), (str(Path(t.path).parent), t.album, {}))[2][base(t.title)] = (t.track_no, t.disc_no)
+        join: dict[str, str] = {}
+        for t in tracks.values():
+            hit = Path(t.path).parent == self.root and eps.get((_norm_key(t.album_artist), catalog(t.title) or catalog(t.album)))
+            if hit and base(t.title) in hit[2]:
+                join[t.id] = hit[0]
+                t.album, (t.track_no, t.disc_no) = hit[1], hit[2][base(t.title)]   # sits next to its twin in the EP
+
         albums: dict[str, Album] = {}
         for t in tracks.values():
-            folder = str(Path(t.path).parent)
+            folder = join.get(t.id) or str(Path(t.path).parent)
             loose = Path(folder) == self.root
             key = f"{'' if loose else folder}|{t.album_artist.lower()}|{t.album.lower()}"
             aid = _id(key)
@@ -364,7 +464,12 @@ class Library:
                     a.edition = Path(a.folder).name
 
         for a in albums.values():
-            a.track_ids.sort(key=lambda i: (tracks[i].disc_no, tracks[i].track_no, tracks[i].title.lower()))
+            cat = catalog(a.title)
+            if cat and len(a.track_ids) > 1:   # "Noir [AIR028]" inside "Oxide EP [AIR028]" -> "Noir"
+                for i in a.track_ids:
+                    t = tracks[i]
+                    t.title = re.sub(rf"\s*\[{re.escape(cat)}\]\s*$", "", t.title, flags=re.I) or t.title
+            a.track_ids.sort(key=lambda i: (tracks[i].disc_no, tracks[i].track_no or 999, tracks[i].title.lower()))
             members = [tracks[i] for i in a.track_ids]
             a.lossless = all(m.lossless for m in members)
             qualities = sorted({m.quality for m in members})
@@ -415,6 +520,9 @@ class Library:
         if url is None:
             url = find_artwork(artist, album.title, first.title,
                                artist_photo=first.named_from in ("tags", "dash")) or ""
+            lead = re.split(r"\s+(?:&|x|feat\.?|ft\.?|and)\s+|\s*,\s*", artist, maxsplit=1, flags=re.I)[0]
+            if not url and lead and lead != artist:   # "Last Pines & Joaquin Gilese": try the first artist
+                url = find_artwork(lead, album.title, first.title, artist_photo=first.named_from in ("tags", "dash")) or ""
             cache[key] = url
             cache_file.write_text(json.dumps(cache, indent=1))
         if not url:
