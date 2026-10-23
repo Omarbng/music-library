@@ -22,7 +22,7 @@ from PIL import Image
 
 AUDIO_EXTS = {".mp3", ".flac", ".m4a", ".mp4", ".aac", ".wav", ".aif", ".aiff", ".ogg", ".opus"}  # .mp4 = audio-only mixes
 COVER_NAMES = ("cover", "folder", "front", "album", "artwork")
-CACHE_VERSION = 6
+CACHE_VERSION = 7
 
 
 def _id(text: str) -> str:
@@ -105,7 +105,7 @@ def clean_name(text: str) -> str:
     return s.strip(" -_.")
 
 
-_PREFIX = re.compile(r"^\s*(?:premiere\s*:?\s*|\[[^\]]{2,24}\]\s*(?:[a-d]\d{1,2}\.?)?\s*)", re.I)
+_PREFIX = re.compile(r"^\s*(?:premiere\s*[:|_]?\s*|\[[^\]]{2,24}\]\s*(?:[a-d]\d{1,2}\.?)?\s*)", re.I)
 _DESCRIPTOR = re.compile(r"^[^()\[\]]*\b(?:remix|mix|edit|version|dub|rework|vip|remaster(?:ed)?)\s*$", re.I)
 
 
