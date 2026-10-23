@@ -236,14 +236,17 @@ def _track_json(t):
     return {
         "id": t.id, "title": _display_title(t), "artist": t.artist, "album": t.album, "albumId": t.album_id,
         "trackNo": t.track_no, "discNo": t.disc_no, "duration": round(t.duration, 2),
-        "quality": t.quality, "lossless": t.lossless, "size": t.size,
+        "quality": t.quality, "lossless": t.lossless, "size": t.size, "added": t.mtime,
         "format": Path(t.path).suffix.lower().lstrip("."),
     }
 
 
+DEFAULT_NAV_LINK = "Lucida|https://lucida.to/"
+
+
 def _nav_link():
-    """Optional extra link in the top bar, from NAV_LINK=Label|https://url in this computer's .env only."""
-    raw = S.get("NAV_LINK", "").strip()
+    """Extra link in the top bar for finding new music. NAV_LINK=Label|https://url changes it, NAV_LINK=off hides it."""
+    raw = (S.get("NAV_LINK", "") or DEFAULT_NAV_LINK).strip()
     if "|" not in raw:
         return None
     label, url = (x.strip() for x in raw.split("|", 1))

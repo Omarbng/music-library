@@ -22,7 +22,7 @@ from PIL import Image
 
 AUDIO_EXTS = {".mp3", ".flac", ".m4a", ".mp4", ".aac", ".wav", ".aif", ".aiff", ".ogg", ".opus"}  # .mp4 = audio-only mixes
 COVER_NAMES = ("cover", "folder", "front", "album", "artwork")
-CACHE_VERSION = 7
+CACHE_VERSION = 8
 
 
 def _id(text: str) -> str:
@@ -93,6 +93,12 @@ class NotAudio(Exception):
 
 
 _JUNK = re.compile(r"\s*[-–|]?\s*(spotubedl\.com|\[?free download\]?|official audio)\s*$", re.I)
+
+
+def _year(raw: str) -> str:
+    """A four-digit year from a date tag, or "" for junk like "null" or "0000"."""
+    m = re.search(r"(?:19|20)\d\d", raw or "")
+    return m.group(0) if m else ""
 
 
 def clean_name(text: str) -> str:
@@ -208,7 +214,7 @@ def read_track(path: Path, root: Path) -> Track:
         album=album,
         track_no=_num(_first(tags, "tracknumber", "0")),
         disc_no=_num(_first(tags, "discnumber", "0")),
-        year=_first(tags, "date", "")[:4],
+        year=_year(_first(tags, "date", "")),
         genre=_first(tags, "genre", ""),
         duration=float(getattr(info, "length", 0.0) or 0.0),
         codec=codec,

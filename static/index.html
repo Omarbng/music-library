@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Instrument+Serif&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?v=deck3">
+<link rel="stylesheet" href="/static/style.css?v=audit2">
 </head>
 <body>
 <div class="grain" aria-hidden="true"></div>
@@ -53,9 +53,12 @@
     </a>
     <div class="pl-center">
       <div class="pl-buttons">
-        <button class="pl-btn" id="prev" aria-label="Previous"><svg viewBox="0 0 24 24"><path d="M7 5.5v13M18.5 6 9.5 12l9 6z"/></svg></button>
-        <button class="pl-play" id="toggle" aria-label="Play"><svg viewBox="0 0 24 24" id="toggle-icon"><path d="M8.5 5.8v12.4L18.5 12z"/></svg></button>
-        <button class="pl-btn" id="next" aria-label="Next"><svg viewBox="0 0 24 24"><path d="M17 5.5v13M5.5 6l9 6-9 6z"/></svg></button>
+        <button class="pl-btn pl-mode" id="shuffle-btn" aria-label="Shuffle" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M4 7.5h3.2c4.3 0 5.3 9 9.6 9H20M4 16.5h3.2c1.5 0 2.6-1.1 3.5-2.6m2.6-3.8c.9-1.5 2-2.6 3.5-2.6H20M17.6 5.2 20 7.5l-2.4 2.3M17.6 14.2l2.4 2.3-2.4 2.3"/></svg></button>
+        <button class="pl-btn" id="prev" aria-label="Previous (P)" title="Previous (P)"><svg viewBox="0 0 24 24"><path d="M7 5.5v13M18.5 6 9.5 12l9 6z"/></svg></button>
+        <button class="pl-play" id="toggle" aria-label="Play" title="Play / pause (Space)"><svg viewBox="0 0 24 24" id="toggle-icon"><path d="M8.5 5.8v12.4L18.5 12z"/></svg></button>
+        <button class="pl-btn" id="next" aria-label="Next (N)" title="Next (N)"><svg viewBox="0 0 24 24"><path d="M17 5.5v13M5.5 6l9 6-9 6z"/></svg></button>
+        <button class="pl-btn pl-mode" id="repeat-btn" aria-label="Repeat off" data-mode="off"><svg viewBox="0 0 24 24"><path d="M5 11.5V10a3 3 0 0 1 3-3h11M16.6 4.6 19 7l-2.4 2.4M19 12.5V14a3 3 0 0 1-3 3H5m2.4 2.4L5 17l2.4-2.4"/></svg></button>
+        <button class="pl-btn" id="queue-btn" aria-label="Queue (Q)" title="Queue (Q)" aria-controls="queue"><svg viewBox="0 0 24 24"><path d="M4 6.5h13M4 11.5h13M4 16.5h8M16.5 14v6.5M19.5 17.2l-3 3.3-3-3.3"/></svg></button>
       </div>
       <div class="pl-seek">
         <span id="t-cur">0:00</span>
@@ -71,9 +74,14 @@
   </div>
 </footer>
 
+<aside class="queue" id="queue" hidden aria-label="Queue">
+  <div class="q-head"><span class="lbl">Queue</span><span class="q-tools"><button class="lbl" id="q-clear">Clear up next</button><button class="lbl" id="q-close">Close</button></span></div>
+  <div class="q-list" id="q-list"></div>
+  <div class="q-keys lbl mute">Space play · N next · P previous · Shift ←/→ 10 s · S shuffle · R repeat · M mute · / search</div>
+</aside>
 <div class="peek" id="peek" aria-hidden="true"></div>
 <audio id="audio" preload="metadata"></audio>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
-<script src="/static/app.js?v=deck3"></script>
+<script src="/static/app.js?v=audit2"></script>
 </body>
 </html>
