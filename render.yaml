@@ -1,0 +1,20 @@
+# Render blueprint: one free web service that runs the music website in Docker.
+# The music is downloaded at start-up from the PRIVATE Hugging Face dataset in HF_DATASET.
+services:
+  - type: web
+    name: music-library
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /login
+    envVars:
+      - key: PASSWORD          # website password — you type it in Render
+        sync: false
+      - key: HF_TOKEN          # Hugging Face token that can read the private dataset — you paste it in Render
+        sync: false
+      - key: SECRET_KEY        # signs login cookies
+        generateValue: true
+      - key: HF_DATASET
+        value: Omarjnbz/music-library-files
+      - key: STORAGE
+        value: local

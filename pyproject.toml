@@ -1,0 +1,18 @@
+[project]
+name = "music-site"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.12"
+dependencies = [
+    "boto3>=1.43.117",
+    "cryptg>=0.6.0",
+    "fastapi>=0.159.1",
+    "huggingface-hub>=2.2.0",
+    "itsdangerous>=2.2.0",
+    "mutagen>=1.48.1",
+    "pillow>=13.0.0",
+    "python-multipart>=0.0.32",
+    "telethon>=1.45.0",
+    "uvicorn[standard]>=0.54.0",
+    "zipstream-ng>=1.9.3",
+]
