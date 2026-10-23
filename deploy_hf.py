@@ -61,6 +61,8 @@ def main():
     ap.add_argument("--dry-run", action="store_true", help="only show what would be uploaded")
     ap.add_argument("--space", default="music-library", help="Space name (default: music-library)")
     ap.add_argument("--dataset", default="music-library-files", help="private dataset name")
+    ap.add_argument("--music-only", action="store_true",
+                    help="only sync the music to the private dataset (use this with Render)")
     ap.add_argument("--reuse-login-token", action="store_true",
                     help="give the Space your login token instead of asking for a read-only one")
     args = ap.parse_args()
@@ -104,6 +106,11 @@ def main():
         api.create_commit(dataset, repo_type="dataset", operations=ops, commit_message="Sync music library")
     else:
         print("\nMusic dataset already up to date.")
+
+    if args.music_only:
+        print("Music synced. On Render, open the music-library service and click Manual Deploy > Restart service "
+              "(or just wait: it reloads the music every time it wakes up).")
+        return
 
     # 2. Space secrets & settings (set before the code so the first build starts with them)
     api.create_repo(space, repo_type="space", space_sdk="docker", private=False, exist_ok=True)
