@@ -29,7 +29,7 @@ INDEX_KEY = "index/library.json"
 FREE_BYTES = 10 * 1024**3          # R2 free tier: 10 GB-month
 PRICE_PER_GB_MONTH = 0.015         # USD, standard storage beyond the free tier
 
-CONTENT_TYPES = {".mp3": "audio/mpeg", ".flac": "audio/flac", ".m4a": "audio/mp4", ".aac": "audio/aac",
+CONTENT_TYPES = {".mp3": "audio/mpeg", ".flac": "audio/flac", ".m4a": "audio/mp4", ".mp4": "audio/mp4", ".aac": "audio/aac",
                  ".wav": "audio/wav", ".aif": "audio/aiff", ".aiff": "audio/aiff", ".ogg": "audio/ogg",
                  ".opus": "audio/ogg", ".jpg": "image/jpeg", ".json": "application/json"}
 

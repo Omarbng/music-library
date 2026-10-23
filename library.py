@@ -20,9 +20,9 @@ from mutagen.id3 import ID3
 from mutagen.mp4 import MP4
 from PIL import Image
 
-AUDIO_EXTS = {".mp3", ".flac", ".m4a", ".aac", ".wav", ".aif", ".aiff", ".ogg", ".opus"}
+AUDIO_EXTS = {".mp3", ".flac", ".m4a", ".mp4", ".aac", ".wav", ".aif", ".aiff", ".ogg", ".opus"}  # .mp4 = audio-only mixes
 COVER_NAMES = ("cover", "folder", "front", "album", "artwork")
-CACHE_VERSION = 3
+CACHE_VERSION = 5
 
 
 def _id(text: str) -> str:
@@ -68,6 +68,7 @@ class Track:
     mtime: float
     album_id: str = ""
     key: str = ""  # object key when the file lives in R2
+    named_from: str = ""  # "tags", "dash" (Artist - Title file name), "by" (Title by uploader) or ""
 
 
 @dataclass
@@ -104,6 +105,11 @@ def clean_name(text: str) -> str:
     return s.strip(" -_.")
 
 
+def name_source(stem: str) -> str:
+    s = stem.replace("_", " ")
+    return "dash" if " - " in s else ("by" if re.search(r"\sby\s", s) else "")
+
+
 def name_from_file(stem: str) -> tuple[str, str]:
     """'00 - Butch - Lale' -> ('Butch', 'Lale'); 'Last_Pines_-_Sail' -> ('Last Pines', 'Sail')."""
     s = stem
@@ -113,6 +119,9 @@ def name_from_file(stem: str) -> tuple[str, str]:
     if " - " in s:
         artist, title = s.split(" - ", 1)
         return artist.strip(), clean_name(title)
+    m = re.match(r"^(.+?)\s+by\s+([^()]+)$", s)        # "Some Mix (Info) by storytellers"
+    if m:
+        return m.group(2).strip(), clean_name(m.group(1))
     return "", s
 
 
@@ -129,9 +138,9 @@ def read_track(path: Path, root: Path) -> Track:
         raise NotAudio(str(path))
 
     ext = path.suffix.lower()
-    codec = {".mp3": "MP3", ".flac": "FLAC", ".m4a": "AAC", ".aac": "AAC", ".wav": "WAV",
+    codec = {".mp3": "MP3", ".flac": "FLAC", ".m4a": "AAC", ".mp4": "AAC", ".aac": "AAC", ".wav": "WAV",
              ".aif": "AIFF", ".aiff": "AIFF", ".ogg": "OGG", ".opus": "OPUS"}[ext]
-    if ext == ".m4a" and info is not None and "alac" in str(getattr(info, "codec", "")).lower():
+    if ext in (".m4a", ".mp4") and info is not None and "alac" in str(getattr(info, "codec", "")).lower():
         codec = "ALAC"
     lossless = codec in {"FLAC", "ALAC", "WAV", "AIFF"}
 
@@ -146,6 +155,8 @@ def read_track(path: Path, root: Path) -> Track:
         quality = " · ".join(parts)
     else:
         kbps = round((getattr(info, "bitrate", 0) or 0) / 1000)
+        if not kbps and getattr(info, "length", 0):
+            kbps = round(stat.st_size * 8 / info.length / 1000)   # estimate when the file doesn't say
         quality = f"{codec} · {kbps} kbps" if kbps else codec
 
     folder = path.parent
@@ -153,6 +164,7 @@ def read_track(path: Path, root: Path) -> Track:
     file_artist, file_title = name_from_file(path.stem)
     title = clean_name(_first(tags, "title", "")) or file_title or path.stem
     artist = _first(tags, "artist", "") or file_artist or "Unknown Artist"
+    named_from = "tags" if _first(tags, "artist", "") else (name_source(path.stem) if file_artist else "")
     album_artist = _first(tags, "albumartist", artist)
     album = _first(tags, "album", title if in_root else folder.name)
 
@@ -173,6 +185,7 @@ def read_track(path: Path, root: Path) -> Track:
         lossless=lossless,
         size=stat.st_size,
         mtime=stat.st_mtime,
+        named_from=named_from,
     )
 
 
@@ -301,6 +314,12 @@ class Library:
 
     # ---------- covers ----------
     def _cover_source(self, album: Album) -> bytes | None:
+        for tid in album.track_ids:
+            track_path = Path(self.tracks[tid].path)
+            for ext in (".jpg", ".jpeg", ".png", ".webp"):
+                side = track_path.with_suffix(ext)
+                if side.is_file():
+                    return side.read_bytes()
         folder = Path(album.folder)
         if folder != self.root:
             images = [p for p in folder.iterdir()
@@ -335,7 +354,8 @@ class Library:
             cache = {}
         url = cache.get(key)
         if url is None:
-            url = find_artwork(artist, album.title, first.title) or ""
+            url = find_artwork(artist, album.title, first.title,
+                               artist_photo=first.named_from in ("tags", "dash")) or ""
             cache[key] = url
             cache_file.write_text(json.dumps(cache, indent=1))
         if not url:
@@ -379,7 +399,7 @@ def embedded_art(path: Path) -> bytes | None:
         if ext == ".mp3":
             frames = ID3(path).getall("APIC")
             return frames[0].data if frames else None
-        if ext in (".m4a", ".aac"):
+        if ext in (".m4a", ".mp4", ".aac"):
             covr = (MP4(path).tags or {}).get("covr")
             return bytes(covr[0]) if covr else None
         f = mutagen.File(path)
@@ -401,7 +421,7 @@ def _norm(s: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", (s or "").lower())
 
 
-def find_artwork(artist: str, album: str, title: str) -> str | None:
+def find_artwork(artist: str, album: str, title: str, artist_photo: bool = True) -> str | None:
     """Return a large cover image URL for the release, or None. Only accepts results whose artist matches."""
     a = _norm(artist.split("/")[0].split(",")[0].split("&")[0])
     queries = []
@@ -444,7 +464,10 @@ def find_artwork(artist: str, album: str, title: str) -> str | None:
                     return cover
         except Exception:
             pass
-    # Nothing for this release (e.g. unreleased): fall back to the artist's photo.
+    # Nothing for this release (e.g. unreleased): fall back to the artist's photo,
+    # but only when the artist name is trustworthy (tags or "Artist - Title"), not an uploader name.
+    if not artist_photo:
+        return None
     try:
         q = urllib.parse.urlencode({"q": artist})
         for r in _http(f"https://api.deezer.com/search/artist?{q}").get("data", []):

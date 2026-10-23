@@ -272,7 +272,7 @@ async def api_rescan():
 
 
 # ---------- media ----------
-MEDIA_TYPES = {".mp3": "audio/mpeg", ".flac": "audio/flac", ".m4a": "audio/mp4", ".aac": "audio/aac",
+MEDIA_TYPES = {".mp3": "audio/mpeg", ".flac": "audio/flac", ".m4a": "audio/mp4", ".mp4": "audio/mp4", ".aac": "audio/aac",
                ".wav": "audio/wav", ".aif": "audio/aiff", ".aiff": "audio/aiff", ".ogg": "audio/ogg",
                ".opus": "audio/ogg"}
 
