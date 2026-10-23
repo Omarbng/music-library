@@ -22,7 +22,7 @@ from PIL import Image
 
 AUDIO_EXTS = {".mp3", ".flac", ".m4a", ".mp4", ".aac", ".wav", ".aif", ".aiff", ".ogg", ".opus"}  # .mp4 = audio-only mixes
 COVER_NAMES = ("cover", "folder", "front", "album", "artwork")
-CACHE_VERSION = 5
+CACHE_VERSION = 6
 
 
 def _id(text: str) -> str:
@@ -105,6 +105,29 @@ def clean_name(text: str) -> str:
     return s.strip(" -_.")
 
 
+_PREFIX = re.compile(r"^\s*(?:premiere\s*:?\s*|\[[^\]]{2,24}\]\s*(?:[a-d]\d{1,2}\.?)?\s*)", re.I)
+_DESCRIPTOR = re.compile(r"^[^()\[\]]*\b(?:remix|mix|edit|version|dub|rework|vip|remaster(?:ed)?)\s*$", re.I)
+
+
+def untangle(title: str, artist: str) -> tuple[str, str]:
+    """Fix tracks tagged with the uploader as artist and "Real Artist - Title" as the title.
+    'Last Pines - No Question' by 'juuz records' -> ('No Question', 'Last Pines').
+    Leaves real titles alone, e.g. 'Train to Vipassana - Etzu Mahkayah Remix'."""
+    t = title or ""
+    for _ in range(2):
+        t = _PREFIX.sub("", t)
+    t = re.sub(r"\[\s+", "[", re.sub(r"\s+\]", "]", t)).strip()
+    if " - " in t:
+        left, right = (x.strip() for x in t.split(" - ", 1))
+        if not right or _DESCRIPTOR.match(right):
+            return t, artist                         # "Title - Somebody Remix"
+        if re.sub(r"[^a-z0-9]", "", left.lower()) == re.sub(r"[^a-z0-9]", "", (artist or "").lower()):
+            return right, artist                     # "Artist - Title" by the same artist
+        if 0 < len(left) <= 60:
+            return right, left                       # real artist was in the title
+    return t, artist
+
+
 def name_source(stem: str) -> str:
     s = stem.replace("_", " ")
     return "dash" if " - " in s else ("by" if re.search(r"\sby\s", s) else "")
@@ -165,8 +188,16 @@ def read_track(path: Path, root: Path) -> Track:
     title = clean_name(_first(tags, "title", "")) or file_title or path.stem
     artist = _first(tags, "artist", "") or file_artist or "Unknown Artist"
     named_from = "tags" if _first(tags, "artist", "") else (name_source(path.stem) if file_artist else "")
-    album_artist = _first(tags, "albumartist", artist)
+    raw_title = title
+    title, real_artist = untangle(title, artist)
+    if real_artist != artist:            # tagged with the uploader; the real artist was in the title
+        artist = real_artist
+        album_artist = real_artist
+    else:
+        album_artist = _first(tags, "albumartist", artist)
     album = _first(tags, "album", title if in_root else folder.name)
+    if clean_name(album) == raw_title or untangle(album, artist)[0] == title:
+        album = title                    # album tag was just the "Artist - Title" string
 
     return Track(
         id=_id(str(path)),
@@ -252,6 +283,7 @@ class Library:
                 except Exception:
                     continue
 
+            tracks = self._drop_copies(tracks)
             self.albums = self._group(tracks)
             self.tracks = tracks
             self.skipped = skipped
@@ -276,7 +308,28 @@ class Library:
             return {"tracks": len(tracks), "albums": len(self.albums), "read": 0, "cached": len(tracks),
                     "seconds": 0}
 
+    @staticmethod
+    def _drop_copies(tracks: dict[str, Track]) -> dict[str, Track]:
+        """Skip downloader duplicates like 'Song (1).m4a' when 'Song.m4a' is the same size."""
+        by_name = {(str(Path(t.path).with_suffix("")), t.size) for t in tracks.values()}
+        out = {}
+        for tid, t in tracks.items():
+            base = re.sub(r"\s\(\d+\)$", "", str(Path(t.path).with_suffix("")))
+            if base != str(Path(t.path).with_suffix("")) and (base, t.size) in by_name:
+                continue
+            out[tid] = t
+        return out
+
     def _group(self, tracks: dict[str, Track]) -> dict[str, Album]:
+        # Loose files whose album tag is shared by different artists (a playlist name, e.g.
+        # "Rominimal") are really separate singles.
+        artists_per_album: dict[str, set] = {}
+        for t in tracks.values():
+            if Path(t.path).parent == self.root:
+                artists_per_album.setdefault(t.album.lower(), set()).add(t.album_artist.lower())
+        for t in tracks.values():
+            if Path(t.path).parent == self.root and len(artists_per_album.get(t.album.lower(), ())) > 1:
+                t.album = t.title
         albums: dict[str, Album] = {}
         for t in tracks.values():
             folder = str(Path(t.path).parent)
