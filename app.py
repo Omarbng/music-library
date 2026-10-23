@@ -15,6 +15,7 @@ import os
 import re
 import secrets
 import socket
+import threading
 import time
 from pathlib import Path
 from urllib.parse import quote
@@ -30,7 +31,7 @@ from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse, Redirec
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
-from library import Library
+from library import AUDIO_EXTS, Library
 
 HERE = Path(__file__).resolve().parent
 ENV_FILE = Path(os.environ.get("MUSIC_SITE_ENV") or HERE / ".env")
@@ -40,7 +41,7 @@ ENV_FILE = Path(os.environ.get("MUSIC_SITE_ENV") or HERE / ".env")
 IS_CLOUD = bool(os.environ.get("MUSIC_CLOUD") or os.environ.get("SPACE_ID") or os.environ.get("RENDER"))
 ENV_KEYS = ("MUSIC_DIR", "EXCLUDE", "PASSWORD", "SECRET_KEY", "HOST", "PORT", "STORAGE", "TG_API_ID", "TG_API_HASH",
             "TG_SESSION", "TG_CHANNEL_TITLE", "R2_ENDPOINT", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET",
-            "SITE_NAME", "SITE_ARTIST", "HF_DATASET", "HF_TOKEN", "NAV_LINK")
+            "SITE_NAME", "SITE_ARTIST", "HF_DATASET", "HF_TOKEN", "NAV_LINK", "AUTO_SYNC")
 
 
 def load_settings() -> dict:
@@ -118,9 +119,117 @@ async def lifespan(_app):
         await tg.connect()
         result = await tg_refresh()
         print(f"Library: {result['albums']} albums, {result['tracks']} tracks from the Telegram channel")
+    start_watchers()
     yield
     if tg is not None:
         await tg.disconnect()
+
+
+# ---------- new music shows up on its own ----------
+# On this computer: watch the music folder; when a download finishes, rescan, then upload it to the
+# private dataset (AUTO_SYNC). Online: check the dataset every few minutes and pull in what changed.
+WATCH_EVERY = 8           # seconds between looks at the music folder
+DATASET_EVERY = 150       # seconds between checks of the dataset (online)
+WATCH_EXTS = AUDIO_EXTS | {".jpg", ".jpeg", ".png", ".webp", ".json"}
+sync_state = {"state": "idle", "at": 0.0, "message": "", "added": 0}
+_sync_lock = threading.Lock()
+_dataset_sha = ""
+
+
+def _folder_signature() -> int:
+    sig = []
+    for dirpath, dirnames, filenames in os.walk(library.root):
+        dirnames[:] = [d for d in dirnames if not d.startswith(".") or d == ".voidcrate"]
+        for name in filenames:
+            if not name.startswith(".") and Path(name).suffix.lower() in WATCH_EXTS:
+                try:
+                    st = os.stat(os.path.join(dirpath, name))
+                    sig.append((dirpath, name, st.st_size, int(st.st_mtime)))
+                except OSError:
+                    pass
+    return hash(tuple(sorted(sig)))
+
+
+def _auto_sync_on() -> bool:
+    flag = S.get("AUTO_SYNC", "").strip().lower()
+    if flag in ("0", "no", "off", "false"):
+        return False
+    try:
+        from huggingface_hub import get_token
+        return bool(get_token() or S.get("HF_TOKEN"))
+    except Exception:
+        return False
+
+
+def run_sync() -> None:
+    """Upload new music to the private dataset in the background; one run at a time, re-run if more arrived."""
+    if not _sync_lock.acquire(blocking=False):
+        sync_state["again"] = True
+        return
+    try:
+        while True:
+            sync_state.update(state="syncing", at=time.time(), message="Uploading new music to the online site", again=False)
+            try:
+                from deploy_hf import sync_music
+                res = sync_music(S, library, log=lambda *_: None)
+                sync_state.update(state="done", at=time.time(), added=res["added"],
+                                  message="Online site is up to date" if res["added"] or res["removed"] else "Nothing new to upload")
+            except Exception as e:  # no network, signed out of Hugging Face, ...
+                sync_state.update(state="error", at=time.time(), message=f"Couldn't upload: {e}"[:200])
+            if not sync_state.pop("again", False):
+                break
+    finally:
+        _sync_lock.release()
+
+
+def watch_folder() -> None:
+    last = _folder_signature()
+    pending = None
+    while True:
+        time.sleep(WATCH_EVERY)
+        try:
+            now = _folder_signature()
+        except Exception:
+            continue
+        if now == last:
+            pending = None
+            continue
+        if now != pending:       # still changing (a download in progress): look again next round
+            pending = now
+            continue
+        last, pending = now, None
+        try:
+            if not library.scanning:
+                refresh_library()
+        except Exception as e:
+            print(f"Rescan after a folder change failed: {e}")
+            continue
+        if _auto_sync_on():
+            run_sync()
+
+
+def watch_dataset() -> None:
+    global _dataset_sha
+    repo = S.get("HF_DATASET", "").strip()
+    from huggingface_hub import HfApi
+    api = HfApi(token=S.get("HF_TOKEN") or None)
+    while True:
+        time.sleep(DATASET_EVERY)
+        try:
+            sha = api.dataset_info(repo).sha
+            if sha and sha != _dataset_sha:
+                fetch_hf_dataset()
+                refresh_library()
+                print("Pulled new music from the dataset.")
+        except Exception as e:
+            print(f"Dataset check failed: {e}")
+
+
+def start_watchers() -> None:
+    if S.get("HF_DATASET"):
+        threading.Thread(target=watch_dataset, daemon=True, name="dataset-watch").start()
+    elif r2 is None and tg is None and library.root.is_dir():
+        threading.Thread(target=watch_folder, daemon=True, name="folder-watch").start()
 
 
 def refresh_library() -> dict:
@@ -280,6 +389,13 @@ def api_album(album_id: str):
     if album is None:
         raise HTTPException(404, "album not found")
     return _album_json(album, with_tracks=True)
+
+
+@app.get("/api/status")
+def api_status():
+    """Polled by the page: notices new music and shows the upload state."""
+    return {"scannedAt": library.scanned_at, "scanning": library.scanning, "tracks": len(library.tracks),
+            "sync": {k: sync_state.get(k) for k in ("state", "at", "message", "added")}}
 
 
 @app.post("/api/rescan")
@@ -572,11 +688,22 @@ def fetch_hf_dataset() -> None:
     repo = S.get("HF_DATASET", "").strip()
     if not repo:
         return
-    from huggingface_hub import snapshot_download
+    global _dataset_sha
+    from huggingface_hub import HfApi, snapshot_download
     target = HERE / "music"
+    api = HfApi(token=S.get("HF_TOKEN") or None)
+    info = api.dataset_info(repo, files_metadata=False)
     print(f"Downloading music from the private dataset {repo} ...")
-    snapshot_download(repo_id=repo, repo_type="dataset", local_dir=str(target),
+    snapshot_download(repo_id=repo, repo_type="dataset", local_dir=str(target), revision=info.sha,
                       token=S.get("HF_TOKEN") or None, max_workers=4)
+    # files removed from the dataset go from here too
+    keep = {s.rfilename for s in (info.siblings or [])}
+    if keep:
+        for p in target.rglob("*"):
+            rel = p.relative_to(target).as_posix()
+            if p.is_file() and not rel.startswith(".cache/") and rel not in keep:
+                p.unlink(missing_ok=True)
+    _dataset_sha = info.sha
     library.root = target.resolve()
     load_password_hash(target)
 

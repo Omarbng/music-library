@@ -32,7 +32,7 @@ const ICON = {
 const state = { albums: [], tracks: [], byAlbum: new Map(), byTrack: new Map(), query: "", view: localGet("recView", "index"), siteName: "void crate", siteArtist: "", cv: 0,
   sort: localGet("sort", "added"), rev: localGet("rev", "0") === "1",            // records
   tsort: localGet("tsort", "added"), trev: localGet("trev", "0") === "1",       // tracks
-  tfilter: localGet("tfilter", "all") };
+  tfilter: localGet("tfilter", "all"), tview: localGet("trackView", "list") };
 const player = { queue: [], orig: [], index: -1, shuffle: localGet("shuffle", "0") === "1", repeat: localGet("repeat", "off") };
 const audio = $("#audio");
 
@@ -179,6 +179,27 @@ function coversGrid(albums) {
       <div class="lbl mute" style="margin-top:4px">${esc(a.artist)}</div>
     </a>`).join("")}</div>`;
 }
+// the wall: covers edge to edge with a small numbered caption, records or tracks
+function wallGrid(items, kind) {
+  return `<div class="wall">${items.map((x, i) => {
+    const art = kind === "tracks" ? { id: x.albumId, title: x.album } : x;
+    const attrs = kind === "tracks" ? `role="button" tabindex="0" data-track="${x.id}" aria-label="Play ${esc(x.title)}"` : `href="#/album/${x.id}"`;
+    return `<${kind === "tracks" ? "div" : "a"} class="wtile reveal" style="--d:${Math.min(i, 14) * .025}s" ${attrs}>
+      ${cover(art, 300)}
+      <span class="wcap"><b>${i + 1}. ${esc(x.artist)}</b><span>${esc(x.title)}</span></span>
+    </${kind === "tracks" ? "div" : "a"}>`;
+  }).join("")}</div>`;
+}
+function bindWall(root, list) {
+  $$(".wtile[data-track]", root).forEach((el) => {
+    const i = list.findIndex((t) => t.id === el.dataset.track);
+    const act = () => { const c = player.queue[player.index]; if (c && c.id === list[i].id) togglePlay(); else playList(list, i); };
+    el.addEventListener("click", act);
+    el.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); act(); } });
+  });
+  markPlaying();
+}
+
 function bindPeek(root) {
   const peek = $("#peek");
   if (matchMedia("(hover: none)").matches) return;
@@ -357,10 +378,10 @@ function renderAlbums() {
       <h1 class="page-title reveal">Records</h1>
       <div class="page-sub"><span class="lbl">${plural(list.length, "record")}</span><span class="lbl mute">${fmtLong(total)}</span><span class="lbl mute">${fmtSize(bytes)}</span></div>
       <div class="sec-head">
-        <div class="toolbar"><button data-view="index" class="${state.view === "index" ? "on" : ""}">Index</button><button data-view="covers" class="${state.view === "covers" ? "on" : ""}">Covers</button></div>
+        <div class="toolbar">${["index", "covers", "wall"].map((v) => `<button data-view="${v}" class="${state.view === v ? "on" : ""}">${v[0].toUpperCase() + v.slice(1)}</button>`).join("")}</div>
         <div class="toolbar"><span class="lbl mute">Sort</span><select id="sort" aria-label="Sort records">${sortOptions(SORTS, state.sort)}</select>${dirBtn(state.rev, "dir")}</div>
       </div>
-      <div id="rec-list">${state.view === "covers" ? coversGrid(list) : indexList(list)}</div>
+      <div id="rec-list">${state.view === "covers" ? coversGrid(list) : state.view === "wall" ? wallGrid(list, "records") : indexList(list)}</div>
     </div>`;
   $$(".toolbar button[data-view]").forEach((b) => b.onclick = () => { state.view = b.dataset.view; localSet("recView", state.view); renderAlbums(); });
   $("#sort").onchange = (e) => { state.sort = e.target.value; state.rev = false; localSet("sort", state.sort); localSet("rev", "0"); renderAlbums(); };
@@ -423,10 +444,12 @@ function renderSongs(limit = 200) {
           <button data-filter="all" class="${state.tfilter === "all" ? "on" : ""}">All</button>
           <button data-filter="lossless" class="${state.tfilter === "lossless" ? "on" : ""}">Lossless only</button>
           <button id="play-all">Play all</button><button id="shuffle-all">Shuffle all</button>
+          <span class="tsep" aria-hidden="true"></span>
+          <button data-tview="list" class="${state.tview === "list" ? "on" : ""}">List</button><button data-tview="wall" class="${state.tview === "wall" ? "on" : ""}">Wall</button>
         </div>
         <div class="toolbar"><span class="lbl mute">Sort</span><select id="tsort" aria-label="Sort tracks">${sortOptions(TSORTS, state.tsort)}</select>${dirBtn(state.trev, "tdir")}</div>
       </div>
-      <div class="tracks" id="list">${headRow()}${rows(shown, { withAlbum: true, numbered: false })}</div>
+      ${state.tview === "wall" ? `<div id="list">${wallGrid(shown, "tracks")}</div>` : `<div class="tracks" id="list">${headRow()}${rows(shown, { withAlbum: true, numbered: false })}</div>`}
       ${!list.length ? `<div class="empty"><h2>No lossless tracks.</h2>Switch the filter back to All.</div>` : ""}
       ${list.length > limit ? `<div class="more"><button class="ulink" id="more">Show more</button></div>` : ""}
     </div>`;
@@ -437,7 +460,8 @@ function renderSongs(limit = 200) {
   $$("[data-filter]").forEach((b) => b.onclick = () => { state.tfilter = b.dataset.filter; localSet("tfilter", state.tfilter); renderSongs(limit); });
   $("#play-all").onclick = () => playList(list, 0, { shuffle: false });
   $("#shuffle-all").onclick = () => playList(list, Math.floor(Math.random() * list.length), { shuffle: true });
-  bindRows($("#list"), shown);
+  $$("[data-tview]").forEach((b) => b.onclick = () => { state.tview = b.dataset.tview; localSet("trackView", state.tview); renderSongs(limit); });
+  if (state.tview === "wall") bindWall($("#list"), shown); else bindRows($("#list"), shown);
   const more = $("#more");
   if (more) more.onclick = () => { const y = scrollY; renderSongs(limit + 200); scrollTo(0, y); };
   reveals();
@@ -583,7 +607,7 @@ function bindEditor(a, list) {
 }
 
 /* ---------- routing ---------- */
-function route() {
+function route(keepScroll = false) {
   $("#peek").classList.remove("on");
   document.body.classList.remove("deck-on");
   const hash = location.hash || "#/";
@@ -595,7 +619,7 @@ function route() {
   else if (tab === "songs") renderSongs();
   else if (tab === "albums") renderAlbums();
   else renderHome();
-  scrollTo({ top: 0, behavior: "instant" });
+  if (!keepScroll) scrollTo({ top: 0, behavior: "instant" });
   closeMenu();
 }
 
@@ -679,6 +703,7 @@ function seekBy(s) { if (audio.duration) audio.currentTime = Math.max(0, Math.mi
 function toggleMute() { if (!audio.src) return; audio.muted = !audio.muted; toast(audio.muted ? "Muted (M)" : "Sound on"); }
 function markPlaying() {
   const c = cur();
+  $$(".wtile[data-track]").forEach((el) => { const on = !!c && el.dataset.track === c.id; el.classList.toggle("playing", on); el.classList.toggle("paused", on && audio.paused); });
   $$(".row:not(.head)").forEach((row) => {
     const on = !!c && row.dataset.track === c.id;
     row.classList.toggle("playing", on); row.classList.toggle("paused", on && audio.paused);
@@ -831,7 +856,33 @@ async function rescan() {
 $("#rescan").onclick = rescan;
 $('[data-action="rescan"]').onclick = () => { closeMenu(); rescan(); };
 
-addEventListener("hashchange", route);
+/* ---------- new music appears on its own; uploads report back ---------- */
+let lastSyncAt = 0;
+async function watchStatus() {
+  if (document.hidden) return;
+  let st;
+  try { st = await api("/api/status"); } catch { return; }
+  if (!st.scanning && Math.floor(st.scannedAt || 0) !== state.cv) {
+    const before = new Set(state.tracks.map((t) => t.id));
+    await loadLibrary();
+    const fresh = state.tracks.filter((t) => !before.has(t.id));
+    if (fresh.length) toast(fresh.length === 1 ? `New in the crate: ${fresh[0].title}` : `${plural(fresh.length, "new track")} in the crate`);
+    // redraw lists in place; leave the deck, a record page and the player alone
+    const h = location.hash || "#/";
+    if (state.query || h.startsWith("#/albums") || h.startsWith("#/songs")) route(true);
+  }
+  const s = st.sync || {};
+  if (s.at && s.at > lastSyncAt && lastSyncAt) {
+    if (s.state === "syncing") toast("Uploading the new music to the online site…");
+    else if (s.state === "done" && s.added) toast("Online site updated. It shows the new music within a few minutes.");
+    else if (s.state === "error") toast(s.message);
+  }
+  lastSyncAt = s.at || lastSyncAt || 1;
+}
+setInterval(watchStatus, 12000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) watchStatus(); });
+
+addEventListener("hashchange", () => route());
 loadLibrary().then(() => { route(); restoreResume(); }).catch((e) => {
   if (e.message !== "login") $("#view").innerHTML = `<div class="page"><div class="empty"><h2>Couldn't reach the crate.</h2>Check that the server is running, then reload.</div></div>`;
 });

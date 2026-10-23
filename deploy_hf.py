@@ -43,11 +43,13 @@ def fmt(n: int) -> str:
     return f"{n / 1e9:.2f} GB" if n >= 1e9 else f"{n / 1e6:.1f} MB"
 
 
-def music_files(env: dict) -> tuple[Path, dict[str, Path]]:
-    """Real audio files the library accepts, plus cover images in album folders."""
-    lib = Library(Path(env.get("MUSIC_DIR", Path.home() / "Music")), env.get("EXCLUDE", "rekordbox").split(","),
-                  HERE / ".cache", online_art=False)
-    lib.scan()
+def music_files(env: dict, lib: Library | None = None) -> tuple[Path, dict[str, Path]]:
+    """Real audio files the library accepts, plus cover images in album folders.
+    Pass the website's own (already scanned) library to skip a second scan."""
+    if lib is None:
+        lib = Library(Path(env.get("MUSIC_DIR", Path.home() / "Music")), env.get("EXCLUDE", "rekordbox").split(","),
+                      HERE / ".cache", online_art=False)
+        lib.scan()
     files: dict[str, Path] = {}
     for t in lib.tracks.values():
         p = Path(t.path)
@@ -81,6 +83,40 @@ def password_op(api: HfApi, dataset: str, password: str):
             "hash": hashlib.pbkdf2_hmac("sha256", password.encode(), salt, rounds).hex()}
     print("Password changed on this computer: the online site will use it after its next restart.")
     return CommitOperationAdd(path_in_repo=PASSWORD_FILE, path_or_fileobj=json.dumps(data).encode())
+
+
+def sync_dataset(api: HfApi, dataset: str, files: dict[str, Path], env: dict, log=print) -> dict:
+    """Mirror the music folder into the private dataset. Returns how many files were added/changed and removed."""
+    api.create_repo(dataset, repo_type="dataset", private=True, exist_ok=True)
+    info = api.repo_info(dataset, repo_type="dataset")
+    if not getattr(info, "private", True):
+        raise RuntimeError(f"Refusing to upload: {dataset} exists and is PUBLIC. Make it private on Hugging Face first.")
+    remote = {f.rfilename: f.size for f in api.list_repo_tree(dataset, repo_type="dataset", recursive=True)
+              if hasattr(f, "size") and f.rfilename != ".gitattributes"}
+    ops = [CommitOperationAdd(path_in_repo=rel, path_or_fileobj=str(p)) for rel, p in sorted(files.items())
+           if remote.get(rel) != p.stat().st_size]
+    ops += [CommitOperationDelete(path_in_repo=rel) for rel in remote if rel not in files and rel != PASSWORD_FILE]
+    pw_op = password_op(api, dataset, env.get("PASSWORD", ""))
+    if pw_op:
+        ops.append(pw_op)
+    added = sum(isinstance(o, CommitOperationAdd) for o in ops)
+    removed = sum(isinstance(o, CommitOperationDelete) for o in ops)
+    if ops:
+        log(f"\nUploading: {added} new/changed, {removed} removed ...")
+        api.create_commit(dataset, repo_type="dataset", operations=ops, commit_message="Sync music library")
+    else:
+        log("\nMusic dataset already up to date.")
+    return {"added": added, "removed": removed}
+
+
+def sync_music(env: dict, lib: Library | None = None, dataset_name: str = "music-library-files", log=print) -> dict:
+    """Upload new/changed music to the private dataset (what --music-only does), for the website's auto-sync."""
+    token = get_token() or env.get("HF_TOKEN", "")
+    if not token:
+        raise RuntimeError("This computer isn't signed in to Hugging Face.")
+    api = HfApi(token=token)
+    _, files = music_files(env, lib)
+    return sync_dataset(api, f"{api.whoami()['name']}/{dataset_name}", files, env, log)
 
 
 def main():
@@ -118,28 +154,13 @@ def main():
         return
 
     # 1. private music dataset (mirror the folder)
-    api.create_repo(dataset, repo_type="dataset", private=True, exist_ok=True)
-    info = api.repo_info(dataset, repo_type="dataset")
-    if not getattr(info, "private", True):
-        sys.exit(f"Refusing to upload: {dataset} exists and is PUBLIC. Make it private on Hugging Face first.")
-    remote = {f.rfilename: f.size for f in api.list_repo_tree(dataset, repo_type="dataset", recursive=True)
-              if hasattr(f, "size") and f.rfilename != ".gitattributes"}
-    ops = [CommitOperationAdd(path_in_repo=rel, path_or_fileobj=str(p)) for rel, p in sorted(files.items())
-           if remote.get(rel) != p.stat().st_size]
-    ops += [CommitOperationDelete(path_in_repo=rel) for rel in remote if rel not in files and rel != PASSWORD_FILE]
-    pw_op = password_op(api, dataset, env.get("PASSWORD", ""))
-    if pw_op:
-        ops.append(pw_op)
-    if ops:
-        print(f"\nUploading: {sum(isinstance(o, CommitOperationAdd) for o in ops)} new/changed, "
-              f"{sum(isinstance(o, CommitOperationDelete) for o in ops)} removed ...")
-        api.create_commit(dataset, repo_type="dataset", operations=ops, commit_message="Sync music library")
-    else:
-        print("\nMusic dataset already up to date.")
+    try:
+        sync_dataset(api, dataset, files, env)
+    except RuntimeError as e:
+        sys.exit(str(e))
 
     if args.music_only:
-        print("Music synced. On Render, open the music-library service and click Manual Deploy > Restart service "
-              "(or just wait: it reloads the music every time it wakes up).")
+        print("Music synced. The online site picks it up within a few minutes (or as soon as it wakes up).")
         return
 
     # 2. Space secrets & settings (set before the code so the first build starts with them)
