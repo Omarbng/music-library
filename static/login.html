@@ -14,49 +14,198 @@
   * { box-sizing:border-box; }
   html,body { margin:0; }
   body { min-height:100dvh; background:var(--paper); color:var(--ink); font:500 13px/1.45 "Geist",ui-sans-serif,system-ui,sans-serif; letter-spacing:-.02em; -webkit-font-smoothing:antialiased; overflow:hidden; }
-  .grain { position:fixed; inset:0; pointer-events:none; opacity:.09; mix-blend-mode:multiply;
+  body.leaving main, body.leaving .top, body.leaving .meta { opacity:0; transform:translateY(-14px); transition:opacity .5s var(--out), transform .6s var(--out); }
+
+  /* the drifting stream of specks, and the paper on top of it */
+  #stream { position:fixed; inset:0; width:100%; height:100%; pointer-events:none; }
+  .grain { position:fixed; inset:0; z-index:9; pointer-events:none; opacity:.09; mix-blend-mode:multiply;
     background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 .9 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
-  .marks i { position:fixed; width:11px; height:11px; }
+  .marks i { position:fixed; z-index:8; width:11px; height:11px; opacity:0; animation:fade .9s var(--out) 1.1s forwards; }
   .marks i::before, .marks i::after { content:""; position:absolute; background:var(--ink); }
   .marks i::before { left:5px; top:0; width:1.5px; height:11px; } .marks i::after { top:5px; left:0; height:1.5px; width:11px; }
   .marks i:nth-child(1) { left:6px; top:40%; } .marks i:nth-child(2) { right:6px; top:40%; } .marks i:nth-child(3) { left:6px; top:78%; } .marks i:nth-child(4) { right:6px; top:78%; }
-  .top { position:fixed; top:0; left:0; right:0; height:44px; display:flex; align-items:center; justify-content:center; font:400 19px/1 "Instrument Serif",serif; }
-  main { position:absolute; left:0; right:0; top:22vh; text-align:center; animation:rise 1.1s var(--out) both; }
-  @keyframes rise { from { opacity:0; transform:translateY(30px); } to { opacity:1; transform:none; } }
-  h1 { margin:0; padding:0 0 6px; font:400 clamp(64px,12.6vw,210px)/.82 "Instrument Serif",serif; text-transform:uppercase; letter-spacing:-.02em; border-bottom:1px solid var(--rule-ink); }
+  @keyframes fade { to { opacity:1; } }
+
+  .top { position:fixed; z-index:5; top:0; left:0; right:0; height:44px; display:flex; align-items:center; justify-content:center; font:400 19px/1 "Instrument Serif",serif; opacity:0; animation:fade 1s var(--out) .2s forwards; }
+  main { position:absolute; z-index:4; left:0; right:0; top:15vh; text-align:center; }
+
+  /* title: each letter rises out of a mask */
+  h1 { margin:0; padding:0 26px 6px; font:400 clamp(64px,12.6vw,210px)/.82 "Instrument Serif",serif; text-transform:uppercase; letter-spacing:-.02em; position:relative; }
+  h1 .word { display:inline-block; overflow:hidden; vertical-align:top; padding-bottom:.04em; }
+  h1 .ch { display:inline-block; transform:translateY(105%); animation:up 1.15s var(--out) forwards; animation-delay:calc(.25s + var(--i) * .055s); }
+  @keyframes up { to { transform:none; } }
+  h1::after { content:""; position:absolute; left:0; right:0; bottom:0; height:1px; background:var(--rule-ink); transform:scaleX(0); transform-origin:left; animation:rule 1.3s var(--out) .55s forwards; }
+  @keyframes rule { to { transform:scaleX(1); } }
+
   .lbl { font:400 8.5px/1.2 "Instrument Serif",serif; letter-spacing:.2em; text-transform:uppercase; }
   .credits { display:flex; justify-content:center; flex-wrap:wrap; gap:4px 16px; margin-top:9px; }
-  .credits span { display:inline-flex; gap:6px; align-items:baseline; }
-  form { width:min(360px, calc(100% - 32px)); margin:64px auto 0; text-align:left; }
-  label { display:block; margin-bottom:6px; }
-  input { width:100%; height:44px; padding:0 2px; border:0; border-bottom:1px solid var(--rule-ink); background:none; color:var(--ink); font:500 18px "Geist",sans-serif; outline:none; transition:border-color .4s var(--spring); }
-  input:focus { border-bottom-color:var(--ink); }
-  button { margin-top:26px; padding:0 0 3px; border:0; border-bottom:3px solid var(--ink); background:none; color:var(--ink); font:400 28px/1 "Instrument Serif",serif; text-transform:uppercase; cursor:pointer; transition:opacity .4s var(--spring); }
-  button:hover { opacity:.6; }
+  .credits > span { display:inline-flex; gap:6px; align-items:baseline; opacity:0; transform:translateY(8px); animation:in .9s var(--out) forwards; animation-delay:calc(1s + var(--i) * .1s); }
+  @keyframes in { to { opacity:1; transform:none; } }
+
+  form { width:min(360px, calc(100% - 40px)); margin:54px auto 0; text-align:left; opacity:0; transform:translateY(16px); animation:in 1s var(--out) 1.35s forwards; }
+  form.shake { animation:in 1s var(--out) 1.35s forwards, shake .55s var(--out) 1.6s; }
+  @keyframes shake { 15% { transform:translateX(-9px); } 35% { transform:translateX(7px); } 55% { transform:translateX(-4px); } 75% { transform:translateX(2px); } }
+  label { display:flex; justify-content:space-between; margin-bottom:6px; }
+  .field { position:relative; }
+  input { width:100%; height:46px; padding:0 34px 0 2px; border:0; border-bottom:1px solid var(--rule-ink); background:none; color:var(--ink); font:500 19px "Geist",sans-serif; letter-spacing:.08em; outline:none; border-radius:0; }
+  .field::after { content:""; position:absolute; left:0; right:0; bottom:0; height:2px; background:var(--ink); transform:scaleX(0); transform-origin:left; transition:transform .7s var(--spring); }
+  .field:focus-within::after { transform:scaleX(1); }
+  .peek { position:absolute; right:0; top:50%; transform:translateY(-50%); width:28px; height:28px; display:grid; place-items:center; border:0; background:none; color:var(--mute); cursor:pointer; transition:color .3s var(--spring); }
+  .peek:hover, .peek[aria-pressed="true"] { color:var(--ink); }
+  .peek svg { width:17px; height:17px; fill:none; stroke:currentColor; stroke-width:1.25; stroke-linecap:round; stroke-linejoin:round; }
+  .row { display:flex; justify-content:space-between; align-items:flex-end; margin-top:24px; }
+  button.enter { display:inline-flex; align-items:baseline; gap:12px; padding:0 0 3px; border:0; border-bottom:3px solid var(--ink); background:none; color:var(--ink); font:400 28px/1 "Instrument Serif",serif; text-transform:uppercase; cursor:pointer; transition:opacity .4s var(--spring), transform .5s var(--spring); }
+  button.enter .arrow { display:inline-block; transition:transform .6s var(--spring); }
+  button.enter:hover .arrow { transform:translateX(6px); }
+  button.enter:active { transform:translateY(1px); }
+  .caps { color:#9a2c1c; opacity:0; transition:opacity .3s var(--spring); }
+  .caps.on { opacity:1; }
   .err { min-height:18px; margin-top:16px; color:#9a2c1c; }
-  .meta { position:fixed; left:0; right:0; bottom:0; }
-  .meta div { display:flex; justify-content:space-between; padding:5px 4px; border-top:1px solid var(--rule-ink); }
-  @media (prefers-reduced-motion: reduce) { main { animation:none; } }
+
+  /* the record rising from the bottom, tilted like the crate, with a pen loop around it */
+  .stage { position:fixed; z-index:2; left:50%; bottom:0; width:min(560px, 88vw); aspect-ratio:1; transform:translate(-50%, 70%); animation:rise 2.2s var(--spring) .5s forwards; pointer-events:none; }
+  @keyframes rise { to { transform:translate(-50%, var(--up, 30%)); } }
+  .tilt { position:absolute; inset:0; transform:perspective(1900px) rotateX(48deg) rotateZ(-14deg); }
+  .disc { position:absolute; inset:0; border-radius:50%; }
+  .spin { position:absolute; inset:0; border-radius:50%; will-change:transform; }
+  .vinyl { position:absolute; inset:0; border-radius:50%;
+    background:repeating-radial-gradient(circle, rgba(255,255,255,.055) 0 1px, transparent 1px 3px), radial-gradient(circle, #1b1b1b 0 33%, #0c0c0c 34% 100%); }
+  .label { position:absolute; inset:33%; border-radius:50%; background:var(--paper); display:grid; place-items:center; }
+  .label span { font:400 clamp(12px,2.2vw,20px)/1 "Instrument Serif",serif; text-transform:uppercase; letter-spacing:.02em; }
+  .label::after { content:""; position:absolute; width:8%; aspect-ratio:1; border-radius:50%; background:#0c0c0c; }
+  .rim-text { position:absolute; inset:0; width:100%; height:100%; overflow:visible; }
+  .rim-text text { font:500 2.3px "Geist",sans-serif; letter-spacing:.62px; fill:rgba(255,255,255,.7); text-transform:uppercase; }
+  .sheen { position:absolute; inset:0; border-radius:50%; mix-blend-mode:screen;
+    background:conic-gradient(from 200deg, transparent 0 6%, rgba(255,255,255,.22) 10%, transparent 16% 44%, rgba(190,225,255,.14) 50%, transparent 57%, rgba(255,205,240,.12) 68%, transparent 75% 100%); }
+  .rim { position:absolute; inset:0; border-radius:50%; box-shadow:inset 0 0 0 2px rgba(225,228,235,.75), 0 60px 90px -40px rgba(0,0,0,.5); }
+  .loop { position:absolute; inset:-14% -18%; width:136%; height:128%; overflow:visible; }
+  .loop path { fill:none; stroke:var(--ink); stroke-width:2.2; stroke-linecap:round; stroke-linejoin:round; }
+
+  .meta { position:fixed; z-index:5; left:0; right:0; bottom:0; opacity:0; animation:fade 1s var(--out) 1.6s forwards; }
+  .meta div { display:flex; justify-content:space-between; padding:5px 26px; border-top:1px solid var(--rule-ink); background:var(--paper); }
+  @media (max-width: 820px) { main { top:14vh; } .meta div { padding:5px 20px; } .stage { width:112vw; --up:42%; } }
+  @media (max-height: 640px) { .stage { display:none; } }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration:.01ms !important; animation-delay:0s !important; transition-duration:.01ms !important; }
+  }
 </style>
 </head>
 <body>
+<canvas id="stream" aria-hidden="true"></canvas>
 <div class="grain" aria-hidden="true"></div>
 <div class="marks" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
 <div class="top">void crate</div>
+
+<div class="stage" aria-hidden="true">
+  <div class="tilt">
+    <div class="disc">
+      <div class="spin" id="spin">
+        <div class="vinyl"></div>
+        <svg class="rim-text" viewBox="0 0 100 100"><defs><path id="rp" d="M50,50 m-41,0 a41,41 0 1,1 82,0 a41,41 0 1,1 -82,0"/></defs><text><textPath href="#rp">void crate · a private crate · selected · raw · minimal · kept, not streamed · void crate · a private crate · selected · raw ·</textPath></text></svg>
+        <div class="label"><span>Void Crate</span></div>
+      </div>
+      <div class="sheen"></div><div class="rim"></div>
+    </div>
+  </div>
+  <svg class="loop" viewBox="0 0 100 100" preserveAspectRatio="none"><path id="loop" vector-effect="non-scaling-stroke"/></svg>
+</div>
+
 <main>
-  <h1>Void Crate</h1>
-  <div class="credits"><span><span class="lbl">Kept</span>private</span><span><span class="lbl">Sound</span>raw, minimal</span><span><span class="lbl">Access</span>by invitation</span></div>
-  <form method="post" action="/login">
-    <label class="lbl" for="pw">Password</label>
-    <input id="pw" name="password" type="password" autocomplete="current-password" autofocus required>
-    <button type="submit">Enter</button>
-    <div class="err" id="err"></div>
+  <h1 id="title" aria-label="Void Crate">Void Crate</h1>
+  <div class="credits"><span style="--i:0"><span class="lbl">Kept</span>private</span><span style="--i:1"><span class="lbl">Sound</span>raw, minimal</span><span style="--i:2"><span class="lbl">Access</span>by invitation</span></div>
+  <form method="post" action="/login" id="form">
+    <label class="lbl" for="pw"><span>Password</span><span class="caps" id="caps">Caps lock is on</span></label>
+    <div class="field">
+      <input id="pw" name="password" type="password" autocomplete="current-password" autofocus required>
+      <button type="button" class="peek" id="peek" aria-label="Show password" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="2.8"/></svg></button>
+    </div>
+    <div class="row"><button type="submit" class="enter">Enter <span class="arrow">→</span></button></div>
+    <div class="err" id="err" role="alert"></div>
   </form>
 </main>
 <div class="meta"><div><span class="lbl">A private crate of selected, raw music</span><span class="lbl">Sign in to listen</span></div></div>
+
 <script>
+(() => {
+  const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // title letters, each in its own mask
+  const h1 = document.getElementById("title");
+  let n = 0;
+  h1.innerHTML = h1.textContent.split(" ").map((w) =>
+    `<span class="word" aria-hidden="true">${[...w].map((c) => `<span class="ch" style="--i:${n++}">${c}</span>`).join("")}</span>`).join(" ");
+
+  // wrong password / too many tries
+  const form = document.getElementById("form"), pw = document.getElementById("pw");
   const e = new URLSearchParams(location.search).get("error");
-  if (e) document.getElementById("err").textContent = e === "wait" ? "Too many attempts. Wait five minutes and try again." : "That password didn't match.";
+  if (e) {
+    document.getElementById("err").textContent = e === "wait" ? "Too many attempts. Wait five minutes and try again." : "That password didn't match.";
+    form.classList.add("shake");
+  }
+  document.getElementById("peek").onclick = (ev) => {
+    const show = pw.type === "password"; pw.type = show ? "text" : "password";
+    ev.currentTarget.setAttribute("aria-pressed", String(show)); ev.currentTarget.setAttribute("aria-label", show ? "Hide password" : "Show password");
+    pw.focus();
+  };
+  const caps = document.getElementById("caps");
+  pw.addEventListener("keyup", (k) => caps.classList.toggle("on", !!k.getModifierState?.("CapsLock")));
+
+  // the disc spins slowly, and races up as you sign in
+  const spin = document.getElementById("spin");
+  let angle = Math.random() * 360, speed = 10, target = 10, prev = performance.now();
+  function turn(now) {
+    const dt = Math.min(64, now - prev) / 1000; prev = now;
+    speed += (target - speed) * Math.min(1, dt * 2);
+    angle = (angle + speed * dt) % 360;
+    spin.style.transform = `rotate(${angle.toFixed(2)}deg)`;
+    requestAnimationFrame(turn);
+  }
+  if (!still) requestAnimationFrame(turn);
+  pw.addEventListener("focus", () => (target = 24));
+  pw.addEventListener("blur", () => (target = 10));
+  pw.addEventListener("input", () => (target = 24 + Math.min(pw.value.length, 16) * 6));
+  form.addEventListener("submit", (ev) => {
+    if (still || !pw.value) return;
+    ev.preventDefault();
+    target = 420; document.body.classList.add("leaving");
+    setTimeout(() => form.submit(), 520);
+  });
+
+  // a hand-drawn double loop, drawn once the disc has risen
+  const path = document.getElementById("loop"), pts = [], turns = 1.86, steps = 140, rot = -14 * Math.PI / 180;
+  for (let i = 0; i <= steps; i++) {
+    const t = (i / steps) * Math.PI * 2 * turns, k = 1 + .035 * Math.sin(3 * t + 1.3) + .018 * Math.sin(7 * t) + (i / steps) * .05;
+    const x = Math.cos(t) * 40 * k, y = Math.sin(t) * 23 * k;
+    pts.push([50 + x * Math.cos(rot) - y * Math.sin(rot), 50 + x * Math.sin(rot) + y * Math.cos(rot)]);
+  }
+  path.setAttribute("d", "M" + pts.map((p) => p.map((v) => v.toFixed(2)).join(",")).join(" L"));
+  const len = path.getTotalLength();
+  path.style.strokeDasharray = len; path.style.strokeDashoffset = still ? 0 : len;
+  if (!still) setTimeout(() => { path.style.transition = "stroke-dashoffset 1.6s cubic-bezier(.6,.05,.25,1)"; path.style.strokeDashoffset = 0; }, 1900);
+
+  // the stream: specks of ink drifting down the paper, twinkling, leaning away from the pointer
+  const c = document.getElementById("stream"), x = c.getContext("2d");
+  let w, h, specks = [], mx = 0, my = 0, px = 0, py = 0;
+  function size() {
+    const d = Math.min(devicePixelRatio || 1, 2); w = innerWidth; h = innerHeight;
+    c.width = w * d; c.height = h * d; x.setTransform(d, 0, 0, d, 0, 0);
+    specks = Array.from({ length: Math.round(w * h / 4200) }, () => ({ x: Math.random() * w, y: Math.random() * h, z: Math.random() ** 2, p: Math.random() * 6.28, s: .4 + Math.random() * .9 }));
+  }
+  function draw(t) {
+    x.clearRect(0, 0, w, h);
+    px += (mx - px) * .04; py += (my - py) * .04;
+    for (const o of specks) {
+      const tw = still ? .8 : .5 + .5 * Math.sin(t * .0016 * o.s + o.p);
+      x.globalAlpha = (.08 + o.z * .5) * tw;
+      x.fillStyle = "#0a0a0a";
+      x.beginPath(); x.arc(o.x - px * (8 + o.z * 26), o.y - py * (6 + o.z * 18), .35 + o.z * 1.3, 0, 6.283); x.fill();
+      if (!still) { o.y += .06 + o.z * .32 * (speed / 10 > 3 ? 3 : speed / 10); o.x += Math.sin(t * .0004 + o.p) * .05; if (o.y > h + 4) { o.y = -4; o.x = Math.random() * w; } }
+    }
+    if (!still) requestAnimationFrame(draw);
+  }
+  addEventListener("pointermove", (p) => { mx = p.clientX / w - .5; my = p.clientY / h - .5; });
+  addEventListener("resize", size); size(); requestAnimationFrame(draw);
+})();
 </script>
 </body>
 </html>

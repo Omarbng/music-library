@@ -7,7 +7,9 @@ Settings live in .env next to this file (created on first run).
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import hmac
+import json
 import os
 import re
 import secrets
@@ -171,7 +173,7 @@ def login(request: Request, password: str = Form(...)):
     ip = request.client.host if request.client else "?"
     if _too_many(ip):
         return RedirectResponse("/login?error=wait", status_code=303)
-    if hmac.compare_digest(password.encode(), S["PASSWORD"].encode()):
+    if password_ok(password):
         request.session["ok"] = True
         _failures.pop(ip, None)
         return RedirectResponse("/", status_code=303)
@@ -460,6 +462,30 @@ def _lan_ip() -> str:
         return "127.0.0.1"
 
 
+PASSWORD_FILE = ".site/password.json"  # written by deploy_hf.py: a salted hash of this computer's PASSWORD
+_pw_hash: dict | None = None
+
+
+def password_ok(password: str) -> bool:
+    """The password from this computer's .env (synced to the cloud as a hash) wins over the host's PASSWORD secret."""
+    if _pw_hash:
+        got = hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(_pw_hash["salt"]), int(_pw_hash["rounds"]))
+        return hmac.compare_digest(got.hex(), _pw_hash["hash"])
+    return hmac.compare_digest(password.encode(), S["PASSWORD"].encode())
+
+
+def load_password_hash(folder: Path) -> None:
+    global _pw_hash
+    f = folder / PASSWORD_FILE
+    try:
+        data = json.loads(f.read_text())
+        if {"salt", "hash", "rounds"} <= data.keys():
+            _pw_hash = data
+            print("Password: the one set on the owner's computer (synced with the music).")
+    except (OSError, ValueError):
+        pass
+
+
 def fetch_hf_dataset() -> None:
     """Cloud: copy the music from a private Hugging Face dataset into the container, then serve it locally."""
     repo = S.get("HF_DATASET", "").strip()
@@ -471,6 +497,7 @@ def fetch_hf_dataset() -> None:
     snapshot_download(repo_id=repo, repo_type="dataset", local_dir=str(target),
                       token=S.get("HF_TOKEN") or None, max_workers=4)
     library.root = target.resolve()
+    load_password_hash(target)
 
 
 def main():
@@ -488,7 +515,7 @@ def main():
     port = int(os.environ.get("PORT") or S.get("PORT", 8765))
     host = S.get("HOST", "0.0.0.0")
     if IS_CLOUD:
-        print(f"Website running on port {port}. Password: the PASSWORD secret set on the host.")
+        print(f"Website running on port {port}." + ("" if _pw_hash else " Password: the PASSWORD secret set on the host."))
     else:
         print(f"Open on this computer: http://localhost:{port}")
         if host == "0.0.0.0":

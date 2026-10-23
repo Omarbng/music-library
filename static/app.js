@@ -79,7 +79,7 @@ const qualityChip = (x) => `<span class="chip ${x.lossless ? "ll" : ""}">${esc(f
 /* ---------- discs: the record printed on a spinning disc ---------- */
 let discUid = 0;
 function rimText(a, tracks = []) {
-  const bits = [a.artist, a.title, a.year, ...tracks.map((x) => x.title)].filter(Boolean).map((x) => String(x).toUpperCase());
+  const bits = [a.artist, a.title, ...tracks.map((x) => x.title)].filter(Boolean).map((x) => String(x).toUpperCase());
   let s = "";
   while (s.length < 168 && bits.length) s += bits.join("  ·  ") + "  ·  ";
   return s.slice(0, 168);
@@ -137,7 +137,6 @@ const SORTS = {
   added: { label: "Recently added", fn: (a, b) => b.added - a.added || byTitle(a, b) },
   artist: { label: "Artist A–Z", fn: byArtist },
   title: { label: "Title A–Z", fn: byTitle },
-  year: { label: "Year", fn: (a, b) => Number(b.year) - Number(a.year) || byTitle(a, b), blank: (a) => !Number(a.year) },
   duration: { label: "Length", fn: (a, b) => b.duration - a.duration || byTitle(a, b) },
   tracks: { label: "Track count", fn: (a, b) => b.tracks - a.tracks || byTitle(a, b) },
   quality: { label: "Format (best first)", fn: (a, b) => qRank(b) - qRank(a) || byTitle(a, b) },
@@ -169,7 +168,7 @@ function indexList(albums) {
     <a class="idx" href="#/album/${a.id}" data-peek="${a.id}">
       <span class="n">${pad2(i + 1)}</span>
       <span class="t">${esc(a.title)}</span>
-      <span class="r"><span class="a">${esc(a.artist)}</span><span class="lbl mute">${esc([a.year, plural(a.tracks, "track"), fmtLabel(a)].filter(Boolean).join(" · "))}</span></span>
+      <span class="r"><span class="a">${esc(a.artist)}</span><span class="lbl mute">${esc([plural(a.tracks, "track"), fmtLabel(a)].join(" · "))}</span></span>
     </a>`).join("")}</div>`;
 }
 function coversGrid(albums) {
@@ -177,7 +176,7 @@ function coversGrid(albums) {
     <a class="ctile reveal" style="--d:${Math.min(i, 12) * .04}s" href="#/album/${a.id}">
       ${cover(a, 300)}
       <div class="cap"><b>${esc(a.title)}</b>${qualityChip(a)}</div>
-      <div class="lbl mute" style="margin-top:4px">${esc(a.artist)}${a.year ? ` · ${esc(a.year)}` : ""}</div>
+      <div class="lbl mute" style="margin-top:4px">${esc(a.artist)}</div>
     </a>`).join("")}</div>`;
 }
 function bindPeek(root) {
@@ -285,7 +284,7 @@ function renderHome() {
   async function info() {
     const a = list[active];
     $("#deck-count").textContent = `${pad2(active + 1)} / ${pad2(list.length)}`;
-    const rows = [["Artist", esc(a.artist)], a.year && ["Year", esc(a.year)], ["Format", esc(fmtLabel(a))]].filter(Boolean);
+    const rows = [["Artist", esc(a.artist)], ["Format", esc(fmtLabel(a))]];
     $("#deck-info").innerHTML = `
       <h2 class="deck-title"><span class="swap">${esc(a.title)}</span></h2>
       <dl class="deck-meta">${rows.map(([k, v]) => `<div><dt class="lbl">${k}</dt><dd>${v}</dd></div>`).join("")}
@@ -293,7 +292,7 @@ function renderHome() {
       <div class="deck-links"><button class="ulink" id="deck-play">Play</button><a class="ulink" href="#/album/${a.id}">Open</a><a class="ulink" href="/download/album/${a.id}" title="Download ${esc(fmtSize(a.size))}">Download</a></div>`;
     $("#deck-notes").innerHTML = `
       <div class="note"><span class="lbl">Length</span><b class="swap">${esc(fmtLong(a.duration))} — ${plural(a.tracks, "track")}</b></div>
-      <div class="note"><span class="lbl">Added</span><b class="swap" style="animation-delay:.08s">${new Date(a.added * 1000).toLocaleDateString(undefined, { month: "long", year: "numeric" })}</b></div>`;
+      <div class="note"><span class="lbl">Size</span><b class="swap" style="animation-delay:.08s">${esc(fmtSize(a.size))}</b></div>`;
     $("#deck-play").onclick = async () => playList(await albumTracks(a.id), 0);
     const tracks = await albumTracks(a.id);
     if (list[active] === a && $("#deck-tracks")) {
@@ -446,7 +445,7 @@ function renderSongs(limit = 200) {
 
 /* ---------- view: search ---------- */
 function renderSearch() {
-  const albums = sortedAlbums().filter((a) => matches([a.title, a.artist, a.genre, a.edition, a.year]));
+  const albums = sortedAlbums().filter((a) => matches([a.title, a.artist, a.genre, a.edition]));
   const tracks = sortedTracks(state.tracks.filter((t) => matches([t.title, t.artist, t.album]))).slice(0, 120);
   $("#view").innerHTML = `
     <div class="page">
@@ -468,13 +467,13 @@ async function renderAlbum(id) {
   const list = a.trackList;
   const order = sortedAlbums(), at = order.findIndex((x) => x.id === a.id);
   const nextAlbum = order.length > 1 ? order[(at + 1) % order.length] : null;
-  const meta = [["Artist", a.artist], ["Year", a.year], ["Tracks", String(list.length)], ["Running time", fmtLong(a.duration)],
+  const meta = [["Artist", a.artist], ["Tracks", String(list.length)], ["Running time", fmtLong(a.duration)],
     ["Format", fmtLabel(a)], ["Size", fmtSize(a.size)], a.edition && ["Edition", a.edition]].filter((m) => m && m[1]);
   $("#view").innerHTML = `
     <article class="ed">
       <a class="lbl mute ed-back" href="#/albums">← Records</a>
       <h1 class="ed-title reveal">${esc(a.title)}</h1>
-      <div class="ed-credits reveal"><span><span class="lbl">By</span>${esc(a.artist)}</span>${a.year ? `<span><span class="lbl">Year</span>${esc(a.year)}</span>` : ""}<span><span class="lbl">Runtime</span>${fmtTime(a.duration)}</span></div>
+      <div class="ed-credits reveal"><span><span class="lbl">By</span>${esc(a.artist)}</span><span><span class="lbl">Runtime</span>${fmtTime(a.duration)}</span></div>
       <div class="ed-stage reveal" style="--d:.08s">
         <div class="sleeve-wrap" id="sleeve">
           ${disc(a, { text: rimText(a, list), idle: 7 })}

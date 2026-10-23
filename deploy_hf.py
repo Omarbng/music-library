@@ -21,6 +21,9 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import hashlib
+import hmac
+import json
 import secrets
 import sys
 from pathlib import Path
@@ -54,6 +57,28 @@ def music_files(env: dict) -> tuple[Path, dict[str, Path]]:
                 if img.suffix.lower() in IMAGE_EXTS and not img.name.startswith("."):
                     files[img.relative_to(lib.root).as_posix()] = img
     return lib.root, files
+
+
+PASSWORD_FILE = ".site/password.json"
+
+
+def password_op(api: HfApi, dataset: str, password: str):
+    """Keep the online site's password the same as this computer's: store a salted hash of it next to the music.
+    Returns an upload, or None when the hash already up there matches."""
+    if not password:
+        return None
+    try:
+        old = json.loads(Path(api.hf_hub_download(dataset, PASSWORD_FILE, repo_type="dataset", force_download=True)).read_text())
+        got = hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(old["salt"]), int(old["rounds"]))
+        if hmac.compare_digest(got.hex(), old["hash"]):
+            return None
+    except Exception:
+        pass  # not uploaded yet, or unreadable: write a fresh one
+    salt, rounds = secrets.token_bytes(16), 310_000
+    data = {"salt": salt.hex(), "rounds": rounds,
+            "hash": hashlib.pbkdf2_hmac("sha256", password.encode(), salt, rounds).hex()}
+    print("Password changed on this computer: the online site will use it after its next restart.")
+    return CommitOperationAdd(path_in_repo=PASSWORD_FILE, path_or_fileobj=json.dumps(data).encode())
 
 
 def main():
@@ -99,9 +124,12 @@ def main():
               if hasattr(f, "size") and f.rfilename != ".gitattributes"}
     ops = [CommitOperationAdd(path_in_repo=rel, path_or_fileobj=str(p)) for rel, p in sorted(files.items())
            if remote.get(rel) != p.stat().st_size]
-    ops += [CommitOperationDelete(path_in_repo=rel) for rel in remote if rel not in files]
+    ops += [CommitOperationDelete(path_in_repo=rel) for rel in remote if rel not in files and rel != PASSWORD_FILE]
+    pw_op = password_op(api, dataset, env.get("PASSWORD", ""))
+    if pw_op:
+        ops.append(pw_op)
     if ops:
-        print(f"\nUploading music: {sum(isinstance(o, CommitOperationAdd) for o in ops)} new/changed, "
+        print(f"\nUploading: {sum(isinstance(o, CommitOperationAdd) for o in ops)} new/changed, "
               f"{sum(isinstance(o, CommitOperationDelete) for o in ops)} removed ...")
         api.create_commit(dataset, repo_type="dataset", operations=ops, commit_message="Sync music library")
     else:
