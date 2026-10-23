@@ -37,7 +37,7 @@ ENV_FILE = Path(os.environ.get("MUSIC_SITE_ENV") or HERE / ".env")
 IS_CLOUD = bool(os.environ.get("MUSIC_CLOUD") or os.environ.get("SPACE_ID") or os.environ.get("RENDER"))
 ENV_KEYS = ("MUSIC_DIR", "EXCLUDE", "PASSWORD", "SECRET_KEY", "HOST", "PORT", "STORAGE", "TG_API_ID", "TG_API_HASH",
             "TG_SESSION", "TG_CHANNEL_TITLE", "R2_ENDPOINT", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET",
-            "SITE_NAME", "SITE_ARTIST", "HF_DATASET", "HF_TOKEN")
+            "SITE_NAME", "SITE_ARTIST", "HF_DATASET", "HF_TOKEN", "NAV_LINK")
 
 
 def load_settings() -> dict:
@@ -241,6 +241,15 @@ def _track_json(t):
     }
 
 
+def _nav_link():
+    """Optional extra link in the top bar, from NAV_LINK=Label|https://url in this computer's .env only."""
+    raw = S.get("NAV_LINK", "").strip()
+    if "|" not in raw:
+        return None
+    label, url = (x.strip() for x in raw.split("|", 1))
+    return {"label": label, "url": url} if label and url.startswith(("https://", "http://")) else None
+
+
 @app.get("/api/library")
 def api_library():
     return {
@@ -248,6 +257,7 @@ def api_library():
         "tracks": [_track_json(t) for t in library.tracks.values()],
         "siteName": S.get("SITE_NAME", "") or "void crate",
         "siteArtist": S.get("SITE_ARTIST", ""),
+        "navLink": _nav_link(),
         "scannedAt": library.scanned_at,
         "scanning": library.scanning,
         "root": str(library.root),

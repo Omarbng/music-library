@@ -48,6 +48,13 @@ async function loadLibrary() {
   state.siteName = d.siteName || "void crate"; state.siteArtist = d.siteArtist || "";
   state.cv = Math.floor(d.scannedAt || 0);  // new cover links after every library refresh
   $("#brand-word").textContent = state.siteName;
+  // optional extra top-bar link (NAV_LINK in this computer's .env)
+  $$(".ext-link").forEach((e) => e.remove());
+  if (d.navLink) {
+    const mk = () => Object.assign(document.createElement("a"), { className: "ext-link", href: d.navLink.url, target: "_blank", rel: "noopener", textContent: `${d.navLink.label} ↗` });
+    $(".nav-links").appendChild(mk());
+    $("#menu").insertBefore(mk(), $("#menu [data-action]"));
+  }
 }
 
 /* ---------- covers (muted generated fallback that sits well on paper) ---------- */
@@ -167,67 +174,143 @@ function emptyState() {
   return `<div class="page"><div class="empty"><span class="lbl mute">Empty crate</span><h2>Nothing in the crate yet.</h2>Add music to ${esc(state.root || "your library")}, then press Refresh.</div></div>`;
 }
 
-/* ---------- view: the crate (home) ---------- */
+/* ---------- view: the crate (home) — the disc deck, after A24's films index ---------- */
+const trackCache = new Map();
+async function albumTracks(id) {
+  if (!trackCache.has(id)) trackCache.set(id, api(`/api/albums/${id}`).then((a) => a.trackList).catch(() => []));
+  return trackCache.get(id);
+}
+
+function loopPath(w, h) {
+  // a hand-drawn double loop around the centre disc, a little uneven like a pen stroke
+  const pts = [], turns = 1.86, n = 140, rot = -16 * Math.PI / 180;
+  for (let i = 0; i <= n; i++) {
+    const t = (i / n) * Math.PI * 2 * turns;
+    const k = 1 + 0.035 * Math.sin(3 * t + 1.3) + 0.018 * Math.sin(7 * t) + (i / n) * 0.05;
+    const x = Math.cos(t) * (w / 2) * 0.93 * k, y = Math.sin(t) * (h / 2) * 0.86 * k;
+    pts.push([w / 2 + x * Math.cos(rot) - y * Math.sin(rot), h / 2 + x * Math.sin(rot) + y * Math.cos(rot)]);
+  }
+  return "M" + pts.map((p) => p.map((v) => v.toFixed(1)).join(",")).join(" L");
+}
+
 function renderHome() {
   if (!state.albums.length) { $("#view").innerHTML = emptyState(); return; }
-  const recents = latest(), top = recents[0], second = recents[1] || recents[0];
-  const lossless = state.tracks.filter((t) => t.lossless).length;
-  const totalTime = state.tracks.reduce((n, t) => n + (t.duration || 0), 0);
-  const updated = new Date((Math.max(...state.albums.map((a) => a.added)) || 0) * 1000);
-  const words = String(top.title).toUpperCase().split(/\s+/).filter(Boolean).slice(0, 4);
-  const spots = [["48%", "25vh"], ["6%", "50vh"], ["58%", "75vh"], ["22%", "100vh"]];
+  const list = sortedAlbums();
+  let active = 0, slots = new Map(), cooldown = 0, wheelAcc = 0, drag = null;
   $("#view").innerHTML = `
-    <section class="title-page">
-      <div class="tp-head">
-        <h1 class="tp-title">Void Crate</h1>
-        <div class="credits">
-          <span><span class="lbl">Selected by</span>${esc(state.siteArtist || "hand")}</span>
-          <span><span class="lbl">Kept</span>private</span>
-          <span><span class="lbl">Sound</span>raw, minimal</span>
-        </div>
-        <div class="tp-links">
-          <button class="ulink" id="play-all">Play the crate</button>
-          <a class="ulink" href="#/albums">Browse records</a>
-        </div>
-      </div>
-      <div class="tp-disc">${disc(top, { text: rimText(top), idle: 8 })}</div>
-      <dl class="meta">
-        <div><dt class="lbl">Records</dt><dd>${state.albums.length}</dd></div>
-        <div><dt class="lbl">Tracks</dt><dd>${state.tracks.length}</dd></div>
-        <div><dt class="lbl">Running time</dt><dd>${fmtLong(totalTime)}</dd></div>
-        <div><dt class="lbl">Lossless</dt><dd>${lossless} of ${state.tracks.length}</dd></div>
-        <div><dt class="lbl">Updated</dt><dd>${updated.toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" })}</dd></div>
-      </dl>
-    </section>
+    <section class="deck" id="deck" tabindex="0" aria-label="Records — scroll, drag or use the arrow keys">
+      <div class="deck-info" id="deck-info"></div>
+      <div class="deck-stage" id="deck-stage"></div>
+      <svg class="loop" id="loop" aria-hidden="true"><path id="loop-path"/></svg>
+      <div class="deck-notes" id="deck-notes"></div>
+      <div class="deck-side l lbl">${esc(state.siteName)} — records</div>
+      <div class="deck-side r lbl" id="deck-count"></div>
+    </section>`;
+  document.body.classList.add("deck-on");
+  const deck = $("#deck"), stage = $("#deck-stage");
 
-    <section class="band" aria-label="Latest record: ${esc(top.title)}">
-      ${cover(top, 800)}
-      ${words.map((w, i) => `<span class="band-word" style="left:${spots[i][0]}; top:${spots[i][1]}">${esc(w)}</span>`).join("")}
-      <div class="band-cta"><a class="ulink" href="#/album/${top.id}">Open record</a></div>
-    </section>
-    <div class="blurb">
-      <span class="lbl">Latest in the crate</span>
-      <div>
-        <p>${esc(top.title)} by ${esc(top.artist)}${top.year ? `, ${esc(top.year)}` : ""}. ${plural(top.tracks, "track")}, ${fmtLong(top.duration)}, ${esc(fmtLabel(top).toLowerCase())}.</p>
-        <div class="links stack" style="margin-top:22px">
-          <button class="ulink" id="play-latest">Play record</button>
-          <a class="ulink" href="/download/album/${top.id}">Download <small>${fmtSize(top.size)}</small></a>
-        </div>
-      </div>
-    </div>
+  function geom() {
+    const vw = innerWidth, vh = innerHeight, mobile = vw < 820;
+    const size = mobile ? Math.min(vw * 0.86, vh * 0.5) : Math.min(vw * 0.4, vh * 0.66);
+    return { vw, vh, mobile, size, cx: vw * (mobile ? 0.5 : 0.53), cy: vh * (mobile ? 0.56 : 0.52),
+             dx: mobile ? vw * 0.74 : vw * 0.34, dy: mobile ? -vh * 0.05 : -vh * 0.14 };
+  }
+  function place() {
+    const g = geom();
+    // keep only the discs near the centre in the page
+    for (let i = active - 4; i <= active + 4; i++) {
+      if (i < 0 || i >= list.length || slots.has(i)) continue;
+      const el = document.createElement("div");
+      el.className = "slot"; el.dataset.i = i;
+      el.innerHTML = `<div class="tilt">${disc(list[i], { text: rimText(list[i]), idle: 6 })}</div>`;
+      const d0 = i < active ? -5 : 5;  // enter from the edge
+      Object.assign(el.style, { width: `${g.size}px`, height: `${g.size}px`, opacity: 0,
+        transform: `translate(${g.cx + d0 * g.dx - g.size / 2}px, ${g.cy + d0 * g.dy - g.size / 2}px) scale(.86)` });
+      stage.appendChild(el); slots.set(i, el);
+      spinDiscs(el);
+    }
+    stage.getBoundingClientRect();  // commit the entry positions so the move animates
+    setTimeout(() => {
+      for (const [i, el] of slots) {
+        const d = i - active;
+        if (Math.abs(d) > 4) { el.remove(); slots.delete(i); continue; }
+        el.classList.toggle("center", d === 0);
+        el.style.width = el.style.height = `${g.size}px`;
+        el.style.zIndex = String(10 - Math.abs(d));
+        el.style.opacity = Math.abs(d) > 3 ? 0 : 1;
+        el.style.transform = `translate(${g.cx + d * g.dx - g.size / 2}px, ${g.cy + d * g.dy - g.size / 2}px) scale(${d === 0 ? 1 : .84})`;
+        el.firstElementChild.firstElementChild.dataset.idle = d === 0 ? 14 : 6;
+      }
+    }, 20);
+    // the hand-drawn loop around the centre disc
+    const w = g.size * 1.22, h = g.size * 0.98, svg = $("#loop"), path = $("#loop-path");
+    Object.assign(svg.style, { left: `${g.cx - w / 2}px`, top: `${g.cy - h / 2}px`, width: `${w}px`, height: `${h}px` });
+    svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
+    path.setAttribute("d", loopPath(w, h));
+    const len = path.getTotalLength();
+    path.style.transition = "none"; path.style.strokeDasharray = len; path.style.strokeDashoffset = len;
+    path.getBoundingClientRect();
+    path.style.transition = ""; setTimeout(() => (path.style.strokeDashoffset = 0), 380);
+  }
+  async function info() {
+    const a = list[active];
+    $("#deck-count").textContent = `${pad2(active + 1)} / ${pad2(list.length)}`;
+    const rows = [["Artist", esc(a.artist)], a.year && ["Year", esc(a.year)], ["Format", esc(fmtLabel(a))]].filter(Boolean);
+    $("#deck-info").innerHTML = `
+      <h2 class="deck-title"><span class="swap">${esc(a.title)}</span></h2>
+      <dl class="deck-meta">${rows.map(([k, v]) => `<div><dt class="lbl">${k}</dt><dd>${v}</dd></div>`).join("")}
+        <div class="tracks-row"><dt class="lbl">Tracks</dt><dd id="deck-tracks">${plural(a.tracks, "track")}</dd></div></dl>
+      <div class="deck-links"><button class="ulink" id="deck-play">Play</button><a class="ulink" href="#/album/${a.id}">Open</a></div>`;
+    $("#deck-notes").innerHTML = `
+      <div class="note"><span class="lbl">Length</span><b class="swap">${esc(fmtLong(a.duration))} — ${plural(a.tracks, "track")}</b></div>
+      <div class="note"><span class="lbl">Added</span><b class="swap" style="animation-delay:.08s">${new Date(a.added * 1000).toLocaleDateString(undefined, { month: "long", year: "numeric" })}</b></div>`;
+    $("#deck-play").onclick = async () => playList(await albumTracks(a.id), 0);
+    const tracks = await albumTracks(a.id);
+    if (list[active] === a && $("#deck-tracks")) {
+      const names = tracks.slice(0, 5).map((t) => esc(t.title));
+      $("#deck-tracks").innerHTML = names.join("<br>") + (tracks.length > 5 ? `<br><span class="lbl mute">+ ${tracks.length - 5} more</span>` : "");
+    }
+  }
+  function go(i) {
+    i = Math.max(0, Math.min(list.length - 1, i));
+    if (i === active) return;
+    active = i; cooldown = performance.now() + 420;
+    place(); info();
+  }
 
-    <section class="sec">
-      <div class="sec-head reveal"><span class="lbl">The crate — ${plural(state.albums.length, "record")}</span><a class="lbl mute" href="#/albums">All records →</a></div>
-      ${indexList(sortedAlbums())}
-    </section>
+  deck.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    if (performance.now() < cooldown) return;
+    wheelAcc += Math.abs(e.deltaY) > Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+    if (Math.abs(wheelAcc) > 40) { go(active + Math.sign(wheelAcc)); wheelAcc = 0; }
+  }, { passive: false });
+  deck.addEventListener("pointerdown", (e) => { drag = { x: e.clientX, y: e.clientY, moved: false }; });
+  deck.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y, dist = Math.abs(dx) > Math.abs(dy) ? -dx : dy;
+    if (Math.abs(dist) > 50) { go(active + Math.sign(dist)); drag = { x: e.clientX, y: e.clientY, moved: true }; }
+  });
+  deck.addEventListener("pointerup", (e) => {
+    const was = drag; drag = null;
+    if (!was || was.moved || e.target.closest("a, button")) return;
+    const slot = e.target.closest(".slot");
+    if (!slot) return;
+    const i = Number(slot.dataset.i);
+    if (i === active) location.hash = `#/album/${list[i].id}`; else go(i);
+  });
+  const onKey = (e) => {
+    if (!deck.isConnected) return removeEventListener("keydown", onKey);
+    if (e.target.matches?.("input, select, textarea")) return;
+    if (["ArrowRight", "ArrowDown"].includes(e.key)) { e.preventDefault(); go(active + 1); }
+    if (["ArrowLeft", "ArrowUp"].includes(e.key)) { e.preventDefault(); go(active - 1); }
+    if (e.key === "Enter") location.hash = `#/album/${list[active].id}`;
+  };
+  addEventListener("keydown", onKey);
+  let rz;
+  const onResize = () => { if (!deck.isConnected) return removeEventListener("resize", onResize); clearTimeout(rz); rz = setTimeout(place, 120); };
+  addEventListener("resize", onResize);
 
-    ${second && second.id !== top.id ? nextBlock(second, "Also in the crate") : ""}
-    <div class="foot"><span class="lbl">${esc(state.siteName)}</span><span class="lbl mute">Private · selected by hand</span></div>`;
-  $("#play-all").onclick = () => playList(shuffle(state.tracks), 0);
-  $("#play-latest").onclick = async () => { const al = await api(`/api/albums/${top.id}`); playList(al.trackList, 0); };
-  bindPeek($("#view"));
-  spinDiscs($("#view"));
-  reveals();
+  place(); info();
 }
 
 /* ---------- view: records ---------- */
@@ -355,6 +438,7 @@ async function renderAlbum(id) {
 /* ---------- routing ---------- */
 function route() {
   $("#peek").classList.remove("on");
+  document.body.classList.remove("deck-on");
   const hash = location.hash || "#/";
   const m = hash.match(/^#\/album\/([\w-]+)/);
   const tab = state.query ? "" : m ? "albums" : hash.startsWith("#/songs") ? "songs" : hash.startsWith("#/albums") ? "albums" : "home";
@@ -441,8 +525,8 @@ if ("mediaSession" in navigator) {
 
 /* ---------- keyboard, search, menu, refresh ---------- */
 document.addEventListener("keydown", (e) => {
-  if (e.target.matches("input, select, textarea")) { if (e.key === "Escape") e.target.blur(); return; }
-  if (e.code === "Space" && !e.target.closest(".row, button, a")) { e.preventDefault(); togglePlay(); }
+  if (e.target.matches?.("input, select, textarea")) { if (e.key === "Escape") e.target.blur(); return; }
+  if (e.code === "Space" && !e.target.closest?.(".row, button, a")) { e.preventDefault(); togglePlay(); }
   if (e.key === "/") { e.preventDefault(); $("#q").focus(); }
 });
 let searchTimer;
