@@ -608,6 +608,7 @@ function bindEditor(a, list) {
 
 /* ---------- routing ---------- */
 function route(keepScroll = false) {
+  if (typeof closeSheet === "function" && !keepScroll) closeSheet();
   $("#peek").classList.remove("on");
   document.body.classList.remove("deck-on");
   const hash = location.hash || "#/";
@@ -656,11 +657,14 @@ function cycleRepeat() {
   toast(REPEAT_TEXT[player.repeat]);
 }
 function syncModes() {
-  const s = $("#shuffle-btn"), r = $("#repeat-btn");
-  s.classList.toggle("on", player.shuffle); s.setAttribute("aria-pressed", String(player.shuffle));
-  s.title = player.shuffle ? "Shuffle on (S)" : "Shuffle off (S)";
-  r.classList.toggle("on", player.repeat !== "off"); r.dataset.mode = player.repeat;
-  r.title = `${REPEAT_TEXT[player.repeat]} (R)`; r.setAttribute("aria-label", REPEAT_TEXT[player.repeat]);
+  $$('[data-act="shuffle"]').forEach((s) => {
+    s.classList.toggle("on", player.shuffle); s.setAttribute("aria-pressed", String(player.shuffle));
+    s.title = player.shuffle ? "Shuffle on (S)" : "Shuffle off (S)";
+  });
+  $$('[data-act="repeat"]').forEach((r) => {
+    r.classList.toggle("on", player.repeat !== "off"); r.dataset.mode = player.repeat;
+    r.title = `${REPEAT_TEXT[player.repeat]} (R)`; r.setAttribute("aria-label", REPEAT_TEXT[player.repeat]);
+  });
 }
 function loadCurrent(autoplay) {
   const t = cur();
@@ -683,6 +687,7 @@ function loadCurrent(autoplay) {
   const dl = $("#np-download"); dl.href = `/download/track/${t.id}`; dl.title = `Download this track · ${fmtSize(t.size || 0)}`;
   $("#t-cur").textContent = "0:00"; $("#seek").value = 0; $("#pl-bar").style.transform = "scaleX(0)";
   $("#t-dur").textContent = fmtTime(t.duration);
+  fillSheet(t);
   document.title = `${t.title} · ${t.artist} — ${state.siteName}`;
   if ("mediaSession" in navigator) {
     navigator.mediaSession.metadata = new MediaMetadata({ title: t.title, artist: t.artist, album: t.album,
@@ -699,7 +704,11 @@ function next(auto) {
   loadCurrent(true);
 }
 function prev() { if (audio.currentTime > 3 || player.index === 0) { audio.currentTime = 0; return; } player.index--; loadCurrent(true); }
-function seekBy(s) { if (audio.duration) audio.currentTime = Math.max(0, Math.min(audio.duration - .5, audio.currentTime + s)); }
+function seekBy(s) {
+  if (!audio.duration) return;
+  audio.currentTime = Math.max(0, Math.min(audio.duration - .5, audio.currentTime + s));
+  flashSkip(s);
+}
 function toggleMute() { if (!audio.src) return; audio.muted = !audio.muted; toast(audio.muted ? "Muted (M)" : "Sound on"); }
 function markPlaying() {
   const c = cur();
@@ -733,8 +742,8 @@ function renderQueue() {
     : `<div class="q-empty">Nothing playing yet. Pick a record or a track.</div>`;
   $("#q-clear").hidden = !up.length;
 }
-function openQueue() { queueEl.hidden = false; renderQueue(); setTimeout(() => queueEl.classList.add("open"), 20); $("#queue-btn").classList.add("on"); }
-function closeQueue() { if (queueEl.hidden) return; queueEl.classList.remove("open"); $("#queue-btn").classList.remove("on"); setTimeout(() => (queueEl.hidden = true), 400); }
+function openQueue() { queueEl.hidden = false; renderQueue(); setTimeout(() => queueEl.classList.add("open"), 20); $$('[data-act="queue"]').forEach((b) => b.classList.add("on")); }
+function closeQueue() { if (queueEl.hidden) return; queueEl.classList.remove("open"); $$('[data-act="queue"]').forEach((b) => b.classList.remove("on")); setTimeout(() => (queueEl.hidden = true), 400); }
 function toggleQueue() { queueEl.hidden ? openQueue() : closeQueue(); }
 $("#q-list").addEventListener("click", (e) => {
   const rm = e.target.closest("[data-qrm]");
@@ -751,7 +760,6 @@ $("#q-list").addEventListener("click", (e) => {
 $("#q-list").addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.matches("[data-qi]")) e.target.click(); });
 $("#q-clear").onclick = () => { player.queue = player.queue.slice(0, player.index + 1); player.orig = player.queue.slice(); renderQueue(); saveResume(); toast("Cleared up next"); };
 $("#q-close").onclick = closeQueue;
-$("#queue-btn").onclick = toggleQueue;
 
 /* pick up where you left off after a reload */
 function saveResume() {
@@ -772,7 +780,7 @@ function restoreResume() {
   loadCurrent(false);
 }
 
-const setIcon = (paused) => { $("#toggle-icon").outerHTML = (paused ? ICON.play : ICON.pause).replace("<svg", '<svg id="toggle-icon"'); $("#toggle").setAttribute("aria-label", paused ? "Play" : "Pause"); };
+const setIcon = (paused) => $$('[data-act="toggle"]').forEach((b) => { b.innerHTML = paused ? ICON.play : ICON.pause; b.setAttribute("aria-label", paused ? "Play" : "Pause"); });
 audio.addEventListener("play", () => { player.wantPlay = true; spinDiscs(); setIcon(false); markPlaying(); renderQueue(); positionState(); });
 audio.addEventListener("pause", () => { setIcon(true); markPlaying(); renderQueue(); saveResume(); });
 audio.addEventListener("ended", () => next(true));
@@ -791,6 +799,7 @@ audio.addEventListener("timeupdate", () => {
   if (seeking) return;
   $("#t-cur").textContent = fmtTime(audio.currentTime);
   $("#seek").value = Math.round(frac * 1000);
+  if (!sheet.hidden && !sheet.scrubbing) syncSheetTime(audio.currentTime, d);
 });
 audio.addEventListener("loadedmetadata", () => { if (isFinite(audio.duration)) $("#t-dur").textContent = fmtTime(audio.duration); positionState(); });
 audio.addEventListener("seeked", positionState);
@@ -801,9 +810,148 @@ seek.addEventListener("change", () => { if (audio.duration) audio.currentTime = 
 const vol = $("#vol");
 vol.value = localGet("vol", "1"); audio.volume = Number(vol.value);
 vol.addEventListener("input", () => { audio.volume = Number(vol.value); audio.muted = false; localSet("vol", vol.value); });
-$("#toggle").onclick = togglePlay; $("#next").onclick = () => next(); $("#prev").onclick = prev;
-$("#shuffle-btn").onclick = () => setShuffle(!player.shuffle); $("#repeat-btn").onclick = cycleRepeat;
+// every transport button, in the bar and in Now Playing, is wired by what it does
+const ACTS = { toggle: togglePlay, prev, next: () => next(), back: () => seekBy(-10), fwd: () => seekBy(10),
+  shuffle: () => setShuffle(!player.shuffle), repeat: cycleRepeat, queue: toggleQueue };
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("[data-act]");
+  if (!b || !ACTS[b.dataset.act]) return;
+  e.preventDefault();
+  navigator.vibrate?.(6);
+  b.classList.remove("tap"); void b.offsetWidth; b.classList.add("tap");
+  ACTS[b.dataset.act]();
+});
 syncModes();
+
+/* ---------- Now Playing: the full-screen record, on phones and desktop ---------- */
+const sheet = $("#np");
+function fillSheet(t) {
+  const d = $("#np-disc");
+  if (d.dataset.album !== t.albumId) {
+    d.dataset.album = t.albumId;
+    d.innerHTML = disc({ id: t.albumId, title: t.album }, { text: rimText({ artist: t.artist, title: t.album }), idle: 4 });
+    spinDiscs(d);
+  }
+  const title = $("#np-big-title");
+  if (title.textContent !== t.title) { title.textContent = t.title; title.classList.remove("swap"); void title.offsetWidth; title.classList.add("swap"); }
+  $("#np-big-artist").textContent = `${t.artist} — ${t.album}`;
+  const q = $("#np-big-quality"); q.textContent = fmtLabel(t); q.className = `chip ${t.lossless ? "ll" : ""}`;
+  $("#np-from").href = `#/album/${t.albumId}`;
+  $("#np-dl").href = `/download/track/${t.id}`;
+  syncSheetTime(0, t.duration);
+}
+function syncSheetTime(at, d) {
+  d = d || audio.duration || cur()?.duration || 0;
+  $("#np-cur").textContent = fmtTime(at);
+  $("#np-left").textContent = `-${fmtTime(Math.max(0, d - at))}`;
+  const v = d ? Math.round((at / d) * 1000) : 0;
+  $("#np-seek").value = v; $("#np-seek").style.setProperty("--p", `${v / 10}%`);
+}
+function openSheet() {
+  if (!cur()) return;
+  fillSheet(cur()); syncSheetTime(audio.currentTime);
+  sheet.hidden = false; document.body.classList.add("np-open");
+  setTimeout(() => sheet.classList.add("open"), 20);
+  spinDiscs(sheet);
+}
+function closeSheet() {
+  if (sheet.hidden) return;
+  sheet.classList.remove("open"); sheet.style.transform = "";
+  document.body.classList.remove("np-open");
+  setTimeout(() => (sheet.hidden = true), 520);
+}
+$("#np-close").onclick = closeSheet;
+$("#np-from").addEventListener("click", closeSheet);
+const npSeek = $("#np-seek");
+npSeek.addEventListener("input", () => { sheet.scrubbing = true; const d = audio.duration || 0; syncSheetTime((npSeek.value / 1000) * d, d); });
+npSeek.addEventListener("change", () => { if (audio.duration) audio.currentTime = (npSeek.value / 1000) * audio.duration; sheet.scrubbing = false; });
+
+// "−10 s / +10 s" flashes on the side you skipped
+function flashSkip(s) {
+  const el = $(s < 0 ? "#np-flash-l" : "#np-flash-r");
+  el.textContent = `${s < 0 ? "−" : "+"}${Math.abs(s)} s`;
+  el.classList.remove("on"); void el.offsetWidth; el.classList.add("on");
+  const bar = $(s < 0 ? "#back10" : "#fwd10"); bar?.classList.remove("tap"); void bar?.offsetWidth; bar?.classList.add("tap");
+}
+
+// the record: drag it round to scrub (a full turn is 30 s), double-tap a side to skip 10 s
+(function turntable() {
+  const stage = $("#np-stage"), label = $("#np-scrub");
+  let drag = null, lastTap = { t: 0, side: 0 };
+  const angle = (e) => { const b = stage.getBoundingClientRect(); return Math.atan2(e.clientY - (b.top + b.height / 2), e.clientX - (b.left + b.width / 2)) * 180 / Math.PI; };
+  stage.addEventListener("pointerdown", (e) => {
+    if (!audio.duration) return;
+    try { stage.setPointerCapture(e.pointerId); } catch {}
+    drag = { a: angle(e), x: e.clientX, y: e.clientY, turned: 0, from: audio.currentTime, moved: false };
+  });
+  stage.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    let da = angle(e) - drag.a; if (da > 180) da -= 360; if (da < -180) da += 360;
+    drag.a = angle(e); drag.turned += da;
+    if (!drag.moved && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 8) { drag.moved = true; sheet.scrubbing = true; stage.classList.add("scrubbing"); }
+    if (!drag.moved) return;
+    const el = $("#np-disc [data-disc]");
+    if (el?._spin) { el._spin.a += da; el._spin.v = 0; }
+    const to = Math.max(0, Math.min(audio.duration - .5, drag.from + (drag.turned / 360) * 30));
+    drag.to = to; syncSheetTime(to);
+    label.textContent = `${drag.turned >= 0 ? "+" : "−"}${fmtTime(Math.abs(to - drag.from))}  ·  ${fmtTime(to)}`;
+  });
+  const end = (e) => {
+    if (!drag) return;
+    const was = drag; drag = null;
+    stage.classList.remove("scrubbing"); sheet.scrubbing = false;
+    if (was.moved) { if (was.to != null) audio.currentTime = was.to; return; }
+    const b = stage.getBoundingClientRect(), side = e.clientX < b.left + b.width / 2 ? -1 : 1, now = performance.now();
+    if (now - lastTap.t < 320 && lastTap.side === side) { seekBy(side * 10); lastTap = { t: 0, side: 0 }; navigator.vibrate?.(8); }
+    else lastTap = { t: now, side };
+  };
+  stage.addEventListener("pointerup", end);
+  stage.addEventListener("pointercancel", () => { drag = null; stage.classList.remove("scrubbing"); sheet.scrubbing = false; });
+})();
+
+// swipe the title sideways for another track; pull the sheet down to close it
+(function sheetGestures() {
+  let g = null;
+  const meta = $("#np-meta"), top = $("#np-top");
+  meta.addEventListener("pointerdown", (e) => { g = { x: e.clientX, y: e.clientY, el: meta }; try { meta.setPointerCapture(e.pointerId); } catch {} });
+  top.addEventListener("pointerdown", (e) => { if (e.target.closest("a, button")) return; g = { x: e.clientX, y: e.clientY, el: top }; try { top.setPointerCapture(e.pointerId); } catch {} });
+  const move = (e) => {
+    if (!g) return;
+    const dx = e.clientX - g.x, dy = e.clientY - g.y;
+    if (g.el === meta && Math.abs(dx) > Math.abs(dy)) meta.style.transform = `translateX(${dx * .6}px)`;
+    if (dy > 0 && Math.abs(dy) > Math.abs(dx)) sheet.style.transform = `translateY(${dy * .8}px)`;
+  };
+  const up = (e) => {
+    if (!g) return;
+    const dx = e.clientX - g.x, dy = e.clientY - g.y; g = null;
+    meta.style.transform = ""; sheet.style.transform = "";
+    if (dy > 110 && Math.abs(dy) > Math.abs(dx)) return closeSheet();
+    if (Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy)) dx < 0 ? next() : prev();
+  };
+  [meta, top].forEach((el) => { el.addEventListener("pointermove", move); el.addEventListener("pointerup", up); el.addEventListener("pointercancel", up); });
+})();
+
+// the bar: tap the track to open Now Playing, swipe it sideways to change track, drag the top edge to seek
+(function barGestures() {
+  const now = $("#np-link");
+  let g = null;
+  now.addEventListener("click", (e) => { e.preventDefault(); if (!now.swiped) openSheet(); now.swiped = false; });
+  now.addEventListener("pointerdown", (e) => { g = { x: e.clientX, y: e.clientY }; });
+  now.addEventListener("pointermove", (e) => { if (g && Math.abs(e.clientX - g.x) > 10) now.style.transform = `translateX(${(e.clientX - g.x) * .5}px)`; });
+  const up = (e) => {
+    if (!g) return;
+    const dx = e.clientX - g.x; g = null; now.style.transform = "";
+    if (Math.abs(dx) > 60) { now.swiped = true; dx < 0 ? next() : prev(); }
+  };
+  now.addEventListener("pointerup", up); now.addEventListener("pointercancel", up);
+
+  const bar = $(".pl-progress");
+  let seekingBar = false;
+  const to = (e) => { const b = bar.getBoundingClientRect(), f = Math.max(0, Math.min(1, (e.clientX - b.left) / b.width)); $("#pl-bar").style.transform = `scaleX(${f})`; return f; };
+  bar.addEventListener("pointerdown", (e) => { if (!audio.duration) return; seekingBar = true; try { bar.setPointerCapture(e.pointerId); } catch {} bar.classList.add("active"); to(e); });
+  bar.addEventListener("pointermove", (e) => { if (seekingBar) to(e); });
+  bar.addEventListener("pointerup", (e) => { if (!seekingBar) return; seekingBar = false; bar.classList.remove("active"); audio.currentTime = to(e) * audio.duration; });
+})();
 function positionState() {
   try { if (audio.duration && isFinite(audio.duration)) navigator.mediaSession?.setPositionState({ duration: audio.duration, position: Math.min(audio.currentTime, audio.duration), playbackRate: audio.playbackRate }); } catch {}
 }
@@ -825,7 +973,9 @@ document.addEventListener("keydown", (e) => {
   if (e.code === "Space" && !e.target.closest?.(".row, .q-item, button, a")) { e.preventDefault(); togglePlay(); return; }
   if (e.shiftKey && (e.key === "ArrowRight" || e.key === "ArrowLeft")) { e.preventDefault(); seekBy(e.key === "ArrowRight" ? 10 : -10); return; }
   const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
-  const keys = { "/": () => $("#q").focus(), n: () => next(), p: prev, m: toggleMute, s: () => setShuffle(!player.shuffle), r: cycleRepeat, q: toggleQueue, Escape: closeQueue };
+  const keys = { "/": () => $("#q").focus(), n: () => next(), p: prev, m: toggleMute, s: () => setShuffle(!player.shuffle), r: cycleRepeat, q: toggleQueue,
+    o: () => (sheet.hidden ? openSheet() : closeSheet()), j: () => seekBy(-10), l: () => seekBy(10),
+    Escape: () => (!queueEl.hidden ? closeQueue() : closeSheet()) };
   if (keys[k]) { e.preventDefault(); keys[k](); }
 });
 let searchTimer;

@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Instrument+Serif&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?v=wall1">
+<link rel="stylesheet" href="/static/style.css?v=np2">
 </head>
 <body>
 <div class="grain" aria-hidden="true"></div>
@@ -47,18 +47,20 @@
 <footer class="player" id="player" hidden>
   <div class="player-core">
     <div class="pl-progress" aria-hidden="true"><i id="pl-bar"></i></div>
-    <a class="pl-now" id="np-link" href="#/">
+    <a class="pl-now" id="np-link" href="#/" title="Open Now Playing">
       <span id="np-art"></span>
       <span class="pl-text"><strong id="np-title"></strong><small id="np-artist"></small></span>
     </a>
     <div class="pl-center">
       <div class="pl-buttons">
-        <button class="pl-btn pl-mode" id="shuffle-btn" aria-label="Shuffle" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M4 7.5h3.2c4.3 0 5.3 9 9.6 9H20M4 16.5h3.2c1.5 0 2.6-1.1 3.5-2.6m2.6-3.8c.9-1.5 2-2.6 3.5-2.6H20M17.6 5.2 20 7.5l-2.4 2.3M17.6 14.2l2.4 2.3-2.4 2.3"/></svg></button>
-        <button class="pl-btn" id="prev" aria-label="Previous (P)" title="Previous (P)"><svg viewBox="0 0 24 24"><path d="M7 5.5v13M18.5 6 9.5 12l9 6z"/></svg></button>
-        <button class="pl-play" id="toggle" aria-label="Play" title="Play / pause (Space)"><svg viewBox="0 0 24 24" id="toggle-icon"><path d="M8.5 5.8v12.4L18.5 12z"/></svg></button>
-        <button class="pl-btn" id="next" aria-label="Next (N)" title="Next (N)"><svg viewBox="0 0 24 24"><path d="M17 5.5v13M5.5 6l9 6-9 6z"/></svg></button>
-        <button class="pl-btn pl-mode" id="repeat-btn" aria-label="Repeat off" data-mode="off"><svg viewBox="0 0 24 24"><path d="M5 11.5V10a3 3 0 0 1 3-3h11M16.6 4.6 19 7l-2.4 2.4M19 12.5V14a3 3 0 0 1-3 3H5m2.4 2.4L5 17l2.4-2.4"/></svg></button>
-        <button class="pl-btn" id="queue-btn" aria-label="Queue (Q)" title="Queue (Q)" aria-controls="queue"><svg viewBox="0 0 24 24"><path d="M4 6.5h13M4 11.5h13M4 16.5h8M16.5 14v6.5M19.5 17.2l-3 3.3-3-3.3"/></svg></button>
+        <button class="pl-btn pl-mode" id="shuffle-btn" data-act="shuffle" aria-label="Shuffle" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M4 7.5h3.2c4.3 0 5.3 9 9.6 9H20M4 16.5h3.2c1.5 0 2.6-1.1 3.5-2.6m2.6-3.8c.9-1.5 2-2.6 3.5-2.6H20M17.6 5.2 20 7.5l-2.4 2.3M17.6 14.2l2.4 2.3-2.4 2.3"/></svg></button>
+        <button class="pl-btn" id="prev" data-act="prev" aria-label="Previous (P)" title="Previous (P)"><svg viewBox="0 0 24 24"><path d="M7 5.5v13M18.5 6 9.5 12l9 6z"/></svg></button>
+        <button class="pl-btn pl-skip" id="back10" data-act="back" aria-label="Back 10 seconds" title="Back 10 s (Shift ←)"><svg viewBox="0 0 24 24"><path d="M5 12.5a7 7 0 1 0 2.1-5M5 4v3.6h3.6"/><text x="12.6" y="15.3" text-anchor="middle" style="font:600 6.4px Geist,sans-serif;fill:currentColor;stroke:none">10</text></svg></button>
+        <button class="pl-play" id="toggle" data-act="toggle" aria-label="Play" title="Play / pause (Space)"><svg viewBox="0 0 24 24"><path d="M8.5 5.8v12.4L18.5 12z"/></svg></button>
+        <button class="pl-btn pl-skip" id="fwd10" data-act="fwd" aria-label="Forward 10 seconds" title="Forward 10 s (Shift →)"><svg viewBox="0 0 24 24"><path d="M19 12.5a7 7 0 1 1-2.1-5M19 4v3.6h-3.6"/><text x="11.4" y="15.3" text-anchor="middle" style="font:600 6.4px Geist,sans-serif;fill:currentColor;stroke:none">10</text></svg></button>
+        <button class="pl-btn" id="next" data-act="next" aria-label="Next (N)" title="Next (N)"><svg viewBox="0 0 24 24"><path d="M17 5.5v13M5.5 6l9 6-9 6z"/></svg></button>
+        <button class="pl-btn pl-mode" id="repeat-btn" data-act="repeat" aria-label="Repeat off" data-mode="off"><svg viewBox="0 0 24 24"><path d="M5 11.5V10a3 3 0 0 1 3-3h11M16.6 4.6 19 7l-2.4 2.4M19 12.5V14a3 3 0 0 1-3 3H5m2.4 2.4L5 17l2.4-2.4"/></svg></button>
+        <button class="pl-btn" id="queue-btn" data-act="queue" aria-label="Queue (Q)" title="Queue (Q)" aria-controls="queue"><svg viewBox="0 0 24 24"><path d="M4 6.5h13M4 11.5h13M4 16.5h8M16.5 14v6.5M19.5 17.2l-3 3.3-3-3.3"/></svg></button>
       </div>
       <div class="pl-seek">
         <span id="t-cur">0:00</span>
@@ -74,6 +76,46 @@
   </div>
 </footer>
 
+<section class="np" id="np" hidden role="dialog" aria-modal="true" aria-label="Now playing">
+  <div class="np-top" id="np-top">
+    <button class="np-close" id="np-close" aria-label="Close Now Playing"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+    <span class="lbl">Now playing</span>
+    <a class="lbl np-from" id="np-from" href="#/">Open record →</a>
+  </div>
+  <div class="np-body">
+    <div class="np-stage" id="np-stage" aria-label="Drag the record to scrub; double-tap a side to skip 10 seconds">
+      <div class="np-disc" id="np-disc"></div>
+      <div class="np-flash l" id="np-flash-l" aria-hidden="true">−10 s</div>
+      <div class="np-flash r" id="np-flash-r" aria-hidden="true">+10 s</div>
+      <div class="np-scrub lbl" id="np-scrub" aria-hidden="true"></div>
+    </div>
+    <div class="np-side">
+      <div class="np-meta" id="np-meta">
+        <h2 class="np-title"><span id="np-big-title"></span></h2>
+        <p class="np-artist" id="np-big-artist"></p>
+        <span class="chip" id="np-big-quality"></span>
+      </div>
+      <div class="np-seek">
+        <input id="np-seek" type="range" min="0" max="1000" value="0" aria-label="Seek">
+        <div class="np-times"><span id="np-cur">0:00</span><span id="np-left">-0:00</span></div>
+      </div>
+      <div class="np-controls">
+        <button class="np-btn" data-act="prev" aria-label="Previous"><svg viewBox="0 0 24 24"><path d="M7 5.5v13M18.5 6 9.5 12l9 6z"/></svg></button>
+        <button class="np-btn" data-act="back" aria-label="Back 10 seconds"><svg viewBox="0 0 24 24"><path d="M5 12.5a7 7 0 1 0 2.1-5M5 4v3.6h3.6"/><text x="12.6" y="15.3" text-anchor="middle" style="font:600 6.4px Geist,sans-serif;fill:currentColor;stroke:none">10</text></svg></button>
+        <button class="np-play" data-act="toggle" aria-label="Play"><svg viewBox="0 0 24 24"><path d="M8.5 5.8v12.4L18.5 12z"/></svg></button>
+        <button class="np-btn" data-act="fwd" aria-label="Forward 10 seconds"><svg viewBox="0 0 24 24"><path d="M19 12.5a7 7 0 1 1-2.1-5M19 4v3.6h-3.6"/><text x="11.4" y="15.3" text-anchor="middle" style="font:600 6.4px Geist,sans-serif;fill:currentColor;stroke:none">10</text></svg></button>
+        <button class="np-btn" data-act="next" aria-label="Next"><svg viewBox="0 0 24 24"><path d="M17 5.5v13M5.5 6l9 6-9 6z"/></svg></button>
+      </div>
+      <div class="np-extra">
+        <button class="np-btn sm pl-mode" data-act="shuffle" aria-label="Shuffle" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M4 7.5h3.2c4.3 0 5.3 9 9.6 9H20M4 16.5h3.2c1.5 0 2.6-1.1 3.5-2.6m2.6-3.8c.9-1.5 2-2.6 3.5-2.6H20M17.6 5.2 20 7.5l-2.4 2.3M17.6 14.2l2.4 2.3-2.4 2.3"/></svg></button>
+        <button class="np-btn sm pl-mode" data-act="repeat" aria-label="Repeat off" data-mode="off"><svg viewBox="0 0 24 24"><path d="M5 11.5V10a3 3 0 0 1 3-3h11M16.6 4.6 19 7l-2.4 2.4M19 12.5V14a3 3 0 0 1-3 3H5m2.4 2.4L5 17l2.4-2.4"/></svg></button>
+        <button class="np-btn sm" data-act="queue" aria-label="Queue"><svg viewBox="0 0 24 24"><path d="M4 6.5h13M4 11.5h13M4 16.5h8M16.5 14v6.5M19.5 17.2l-3 3.3-3-3.3"/></svg></button>
+        <a class="np-btn sm" id="np-dl" aria-label="Download this track"><svg viewBox="0 0 24 24"><path d="M12 4v11M7.5 11 12 15.5 16.5 11M5 19.5h14"/></svg></a>
+      </div>
+      <p class="np-hint lbl mute">Drag the record to scrub · double-tap a side to skip 10 s · swipe the title for the next track</p>
+    </div>
+  </div>
+</section>
 <aside class="queue" id="queue" hidden aria-label="Queue">
   <div class="q-head"><span class="lbl">Queue</span><span class="q-tools"><button class="lbl" id="q-clear">Clear up next</button><button class="lbl" id="q-close">Close</button></span></div>
   <div class="q-list" id="q-list"></div>
@@ -82,6 +124,6 @@
 <div class="peek" id="peek" aria-hidden="true"></div>
 <audio id="audio" preload="metadata"></audio>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
-<script src="/static/app.js?v=wall1"></script>
+<script src="/static/app.js?v=np2"></script>
 </body>
 </html>
